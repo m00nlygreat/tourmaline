@@ -13,5 +13,10 @@
     "esbuild": "^0.25.11",
     "obsidian": "^1.8.10",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "mdast-util-to-string": "^4.0.0",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5"
   }
 }

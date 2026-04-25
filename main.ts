@@ -9,6 +9,10 @@ import {
 	ViewStateResult,
 	WorkspaceLeaf
 } from "obsidian";
+import type { Content, Heading, Root } from "mdast";
+import { toString } from "mdast-util-to-string";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 const VIEW_TYPE_ARKIDIAN = "arkidian-canvas-view";
 const META_SUFFIX = ".meta.json";
@@ -34,9 +38,14 @@ type CanvasItemState = {
 };
 
 type CanvasMeta = {
-	version: 1;
-	zoom: number;
-	items: Record<string, CanvasItemState>;
+	version: 2;
+	scopes: Record<
+		string,
+		{
+			zoom: number;
+			items: Record<string, CanvasItemState>;
+		}
+	>;
 };
 
 type SectionNode = {
@@ -47,6 +56,7 @@ type SectionNode = {
 	startLine: number;
 	endLine: number;
 	content: string;
+	scopeId: string;
 };
 
 type OrphanNode = {
@@ -54,16 +64,28 @@ type OrphanNode = {
 	content: string;
 	startLine: number;
 	endLine: number;
+	scopeId: string;
+};
+
+type ParsedScope = {
+	id: string;
+	title: string;
+	startLine: number;
+	endLine: number;
+	depth: number | null;
+	sections: SectionNode[];
+	orphans: OrphanNode[];
 };
 
 type ParsedDocument = {
-	sections: SectionNode[];
-	orphans: OrphanNode[];
-	topLevel: number | null;
+	scopes: Record<string, ParsedScope>;
+	rootScopeId: string;
+	maxHeadingDepth: number;
 };
 
 type ArkidianViewState = {
 	file?: string;
+	scopeId?: string;
 };
 
 type ZoomPluginApi = {
@@ -138,6 +160,8 @@ export default class ArkidianPlugin extends Plugin {
 class ArkidianView extends ItemView {
 	private plugin: ArkidianPlugin;
 	private currentFile: TFile | null = null;
+	private currentScopeId = "scope:root";
+	private parsedDocument: ParsedDocument | null = null;
 	private canvasEl!: HTMLDivElement;
 	private scrollEl!: HTMLDivElement;
 	private gridCanvasEl!: HTMLCanvasElement;
@@ -150,6 +174,7 @@ class ArkidianView extends ItemView {
 	private zoomSaveTimer: number | null = null;
 	private isSpacePressed = false;
 	private fittedFilePath: string | null = null;
+	private fittedScopeId: string | null = null;
 	private gridRenderFrame: number | null = null;
 	private resizeObserver: ResizeObserver | null = null;
 
@@ -175,9 +200,23 @@ class ArkidianView extends ItemView {
 		this.containerEl.addClass("arkidian-view");
 
 		const toolbar = this.containerEl.createDiv({ cls: "arkidian-toolbar" });
+		const backButton = toolbar.createEl("button", { text: "Back" });
+		backButton.addEventListener("click", () => {
+			if (!this.parsedDocument) {
+				return;
+			}
+			const parentScopeId = getParentScopeId(this.currentScopeId);
+			if (!parentScopeId || !this.parsedDocument.scopes[parentScopeId]) {
+				return;
+			}
+			this.currentScopeId = parentScopeId;
+			this.fittedScopeId = null;
+			void this.renderCurrentFile();
+		});
 		const refreshButton = toolbar.createEl("button", { text: "Refresh" });
 		refreshButton.addEventListener("click", () => {
 			this.fittedFilePath = null;
+			this.fittedScopeId = null;
 			void this.renderCurrentFile();
 		});
 
@@ -192,6 +231,8 @@ class ArkidianView extends ItemView {
 			}
 			this.currentFile = file;
 			this.fittedFilePath = null;
+			this.currentScopeId = "scope:root";
+			this.fittedScopeId = null;
 			await this.renderCurrentFile();
 		});
 
@@ -269,11 +310,13 @@ class ArkidianView extends ItemView {
 				? (this.app.vault.getAbstractFileByPath(state.file) as TFile)
 				: null
 			: null;
+		this.currentScopeId = state.scopeId ?? "scope:root";
 	}
 
 	getState(): ArkidianViewState {
 		return {
-			file: this.currentFile?.path
+			file: this.currentFile?.path,
+			scopeId: this.currentScopeId
 		};
 	}
 
@@ -298,46 +341,55 @@ class ArkidianView extends ItemView {
 
 		const source = await this.app.vault.read(this.currentFile);
 		const parsed = parseMarkdownStructure(source);
+		this.parsedDocument = parsed;
+		if (!parsed.scopes[this.currentScopeId]) {
+			this.currentScopeId = parsed.rootScopeId;
+		}
+		const scope = parsed.scopes[this.currentScopeId];
 		const meta = await this.readMeta(this.currentFile);
+		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
 		const itemStates: CanvasItemState[] = [];
 
-		if (!parsed.sections.length && !parsed.orphans.length) {
+		if (!scope.sections.length && !scope.orphans.length) {
 			this.renderEmptyState("This document has no visible markdown blocks yet.");
 			this.fitViewportToOriginIfNeeded();
 			return;
 		}
 
-		parsed.sections.forEach((section, index) => {
+		for (const [index, section] of scope.sections.entries()) {
 			const fallback = this.getDefaultItemState(section.id, index, false);
-			const state = meta.items[section.id] ?? fallback;
+			const state = scopeMeta.items[section.id] ?? fallback;
 			itemStates.push(state);
-			this.renderSectionCard(section, state);
-		});
+			await this.renderSectionCard(section, state);
+		}
 
-		parsed.orphans.forEach((orphan, index) => {
+		for (const [index, orphan] of scope.orphans.entries()) {
 			const fallback = this.getDefaultItemState(orphan.id, index, true);
-			const state = meta.items[orphan.id] ?? fallback;
+			const state = scopeMeta.items[orphan.id] ?? fallback;
 			itemStates.push(state);
-			this.renderOrphan(orphan, state);
-		});
+			await this.renderOrphan(orphan, state);
+		}
 
-		await this.writeMeta({
-			...meta,
+		meta.scopes[this.currentScopeId] = {
+			zoom: scopeMeta.zoom,
 			items: {
 				...Object.fromEntries(
-					[...parsed.sections, ...parsed.orphans].map((node, index) => {
+					[...scope.sections, ...scope.orphans].map((node, index) => {
 						const fallback = this.getDefaultItemState(
 							node.id,
 							index,
 							"id" in node && node.id.startsWith("orphan")
 						);
-						return [node.id, meta.items[node.id] ?? fallback];
+						return [node.id, scopeMeta.items[node.id] ?? fallback];
 					})
 				)
 			}
+		};
+		await this.writeMeta({
+			...meta
 		});
 
-		this.fitViewportToItemsIfNeeded(itemStates, meta.zoom || 1);
+		this.fitViewportToItemsIfNeeded(itemStates, scopeMeta.zoom || 1);
 	}
 
 	private renderEmptyState(message: string) {
@@ -421,7 +473,11 @@ class ArkidianView extends ItemView {
 	}
 
 	private fitViewportToOriginIfNeeded() {
-		if (!this.currentFile || this.fittedFilePath === this.currentFile.path) {
+		if (
+			!this.currentFile ||
+			(this.fittedFilePath === this.currentFile.path &&
+				this.fittedScopeId === this.currentScopeId)
+		) {
 			return;
 		}
 
@@ -430,6 +486,7 @@ class ArkidianView extends ItemView {
 			this.syncStageZoom();
 			this.centerOnWorldPoint(0, 0);
 			this.fittedFilePath = this.currentFile?.path ?? null;
+			this.fittedScopeId = this.currentScopeId;
 		});
 	}
 
@@ -437,7 +494,11 @@ class ArkidianView extends ItemView {
 		itemStates: CanvasItemState[],
 		fallbackZoom: number
 	) {
-		if (!this.currentFile || this.fittedFilePath === this.currentFile.path) {
+		if (
+			!this.currentFile ||
+			(this.fittedFilePath === this.currentFile.path &&
+				this.fittedScopeId === this.currentScopeId)
+		) {
 			return;
 		}
 
@@ -460,6 +521,7 @@ class ArkidianView extends ItemView {
 			this.syncStageZoom();
 			this.centerOnWorldPoint(bounds.centerX, bounds.centerY);
 			this.fittedFilePath = this.currentFile?.path ?? null;
+			this.fittedScopeId = this.currentScopeId;
 		});
 	}
 
@@ -691,35 +753,52 @@ class ArkidianView extends ItemView {
 		}, 150);
 	}
 
-	private renderSectionCard(section: SectionNode, state: CanvasItemState) {
+	private async renderSectionCard(section: SectionNode, state: CanvasItemState) {
 		const card = this.stageEl.createDiv({ cls: "arkidian-card" });
 		applyItemFrame(card, state);
 
 		const body = card.createDiv({ cls: "arkidian-card-body" });
 		const preview = body.createDiv({ cls: "arkidian-preview" });
-		void this.renderMarkdownPreview(preview, section.content);
+		await this.renderMarkdownPreview(preview, section.content);
+		state.height = Math.max(DEFAULT_CARD_HEIGHT, Math.ceil(card.offsetHeight));
+		applyItemFrame(card, state);
+		const openButton = card.createEl("button", {
+			cls: "arkidian-card-open-scope",
+			text: "Open"
+		});
+		openButton.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.enterScope(section.scopeId);
+		});
 		card.addEventListener("dblclick", (event) => {
 			if (shouldIgnoreCardActivation(event.target)) {
 				return;
 			}
 			event.preventDefault();
 			event.stopPropagation();
-			void this.openSectionInPopout(section);
+			if (event.metaKey || event.ctrlKey) {
+				void this.openSectionInPopout(section);
+				return;
+			}
+			void this.enterScope(section.scopeId);
 		});
 
 		this.enableDragging(card, card, section.id, state);
 		this.enableCardResizing(card, section.id, state);
 	}
 
-	private renderOrphan(orphan: OrphanNode, state: CanvasItemState) {
+	private async renderOrphan(orphan: OrphanNode, state: CanvasItemState) {
 		const item = this.stageEl.createDiv({ cls: "arkidian-orphan" });
 		applyItemFrame(item, state);
 
-		const body = item.createDiv({ cls: "arkidian-orphan-body" });
-		const preview = body.createDiv({ cls: "arkidian-preview" });
-		void this.renderMarkdownPreview(preview, orphan.content.trim());
+		const preview = item.createDiv({ cls: "arkidian-preview" });
+		await this.renderMarkdownPreview(preview, orphan.content.trim());
+		state.height = Math.max(1, Math.ceil(item.offsetHeight));
+		applyItemFrame(item, state);
 
 		this.enableDragging(item, item, orphan.id, state);
+		this.enableCardResizing(item, orphan.id, state);
 	}
 
 	private enableDragging(
@@ -891,25 +970,59 @@ class ArkidianView extends ItemView {
 		return parent ? `${parent}/${base}` : base;
 	}
 
+	private async enterScope(scopeId: string) {
+		this.currentScopeId = scopeId;
+		this.fittedScopeId = null;
+		await this.renderCurrentFile();
+	}
+
+	private getScopeMeta(meta: CanvasMeta, scopeId: string) {
+		return (
+			meta.scopes[scopeId] ?? {
+				zoom: 1,
+				items: {}
+			}
+		);
+	}
+
 	private async readMeta(file: TFile): Promise<CanvasMeta> {
 		const metaPath = this.getMetaPath(file);
 		const existing = this.app.vault.getAbstractFileByPath(metaPath);
 		if (!(existing instanceof TFile)) {
 			return {
-				version: 1,
-				zoom: 1,
-				items: {}
+				version: 2,
+				scopes: {}
 			};
 		}
 
 		try {
-			return JSON.parse(await this.app.vault.read(existing)) as CanvasMeta;
+			const parsed = JSON.parse(await this.app.vault.read(existing)) as
+				| CanvasMeta
+				| {
+						version?: number;
+						zoom?: number;
+						items?: Record<string, CanvasItemState>;
+				  };
+			if ("scopes" in parsed && parsed.scopes) {
+				return {
+					version: 2,
+					scopes: parsed.scopes
+				};
+			}
+			return {
+				version: 2,
+				scopes: {
+					"scope:root": {
+						zoom: parsed.zoom ?? 1,
+						items: parsed.items ?? {}
+					}
+				}
+			};
 		} catch {
 			new Notice("Could not parse Arkidian metadata. Resetting layout.");
 			return {
-				version: 1,
-				zoom: 1,
-				items: {}
+				version: 2,
+				scopes: {}
 			};
 		}
 	}
@@ -935,8 +1048,10 @@ class ArkidianView extends ItemView {
 			return;
 		}
 		const meta = await this.readMeta(this.currentFile);
-		meta.items[itemId] = state;
-		meta.zoom = this.zoom;
+		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
+		scopeMeta.items[itemId] = state;
+		scopeMeta.zoom = this.zoom;
+		meta.scopes[this.currentScopeId] = scopeMeta;
 		await this.writeMeta(meta);
 	}
 
@@ -946,7 +1061,9 @@ class ArkidianView extends ItemView {
 		}
 
 		const meta = await this.readMeta(this.currentFile);
-		meta.zoom = this.zoom;
+		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
+		scopeMeta.zoom = this.zoom;
+		meta.scopes[this.currentScopeId] = scopeMeta;
 		await this.writeMeta(meta);
 	}
 
@@ -974,96 +1091,211 @@ class ArkidianView extends ItemView {
 }
 
 function parseMarkdownStructure(markdown: string): ParsedDocument {
+	const tree = unified().use(remarkParse).parse(markdown) as Root;
 	const lines = markdown.split(/\r?\n/);
-	const headingMatches = lines
-		.map((line, index) => {
-			const match = /^(#{1,6})\s+(.*)$/.exec(line);
-			return match
-				? {
-						index,
-						level: match[1].length,
-						title: match[2].trim()
-					}
-				: null;
-		})
-		.filter(Boolean) as Array<{ index: number; level: number; title: string }>;
-
-	if (!headingMatches.length) {
-		return {
-			sections: [],
-			orphans: collectOrphans(lines, 0, lines.length - 1),
-			topLevel: null
-		};
-	}
-
-	const topLevel = Math.min(...headingMatches.map((heading) => heading.level));
-	const topHeadings = headingMatches.filter((heading) => heading.level === topLevel);
-	const sections: SectionNode[] = topHeadings.map((heading, idx) => {
-		const next = topHeadings[idx + 1];
-		const endLine = next ? next.index - 1 : lines.length - 1;
-		const content = lines.slice(heading.index, endLine + 1).join("\n");
-		return {
-			id: `section:${buildSectionPath(lines, heading.index).join(" > ")}`,
-			title: heading.title,
-			level: heading.level,
-			path: buildSectionPath(lines, heading.index),
-			startLine: heading.index,
-			endLine,
-			content
-		};
-	});
-
-	const firstTopIndex = topHeadings[0]?.index ?? 0;
-	const orphans = collectOrphans(lines, 0, firstTopIndex - 1);
-
+	const scopes: Record<string, ParsedScope> = {};
+	const allHeadings = tree.children.filter(
+		(node): node is Heading => node.type === "heading"
+	);
+	buildScope(tree.children, "scope:root", "Global", [], scopes, markdown, lines);
 	return {
-		sections,
-		orphans,
-		topLevel
+		scopes,
+		rootScopeId: "scope:root",
+		maxHeadingDepth: allHeadings.reduce(
+			(max, heading) => Math.max(max, heading.depth),
+			0
+		)
 	};
 }
 
-function buildSectionPath(lines: string[], headingIndex: number): string[] {
-	const path: Array<{ level: number; title: string }> = [];
-	for (let index = 0; index <= headingIndex; index += 1) {
-		const match = /^(#{1,6})\s+(.*)$/.exec(lines[index]);
-		if (!match) {
-			continue;
-		}
-		const level = match[1].length;
-		const title = match[2].trim();
-		while (path.length && path[path.length - 1].level >= level) {
-			path.pop();
-		}
-		path.push({ level, title });
+function buildScope(
+	nodes: Content[],
+	scopeId: string,
+	title: string,
+	parentPath: string[],
+	scopes: Record<string, ParsedScope>,
+	markdown: string,
+	lines: string[]
+) {
+	const headings = nodes
+		.map((node, index) => (node.type === "heading" ? { node, index } : null))
+		.filter(Boolean) as Array<{ node: Heading; index: number }>;
+	const minDepth =
+		headings.length > 0
+			? Math.min(...headings.map(({ node }) => node.depth))
+			: null;
+	const scopeSections: SectionNode[] = [];
+	const scopeOrphans: OrphanNode[] = [];
+
+	if (minDepth === null) {
+		scopeOrphans.push(
+			...buildShellLessNodes(nodes, scopeId, markdown, lines, parentPath)
+		);
+	} else {
+		const shellHeadings = headings.filter(({ node }) => node.depth === minDepth);
+		const firstShellIndex = shellHeadings[0]?.index ?? 0;
+		scopeOrphans.push(
+			...buildShellLessNodes(
+				nodes.slice(0, firstShellIndex),
+				scopeId,
+				markdown,
+				lines,
+				parentPath
+			)
+		);
+
+		shellHeadings.forEach(({ node, index }, shellIndex) => {
+			const nextShellIndex = shellHeadings[shellIndex + 1]?.index ?? nodes.length;
+			const shellPath = [...parentPath, toString(node).trim()];
+			const sectionId = `section:${shellPath.join(" > ")}`;
+			const childScopeId = `scope:${shellPath.join(" > ")}`;
+			const bodyNodes = nodes.slice(index + 1, nextShellIndex);
+
+			scopeSections.push({
+				id: sectionId,
+				title: toString(node).trim(),
+				level: node.depth,
+				path: shellPath,
+				startLine: getNodeStartLine(node),
+				endLine: getScopeEndLine(bodyNodes, node, lines),
+				content: [getNodeMarkdown(markdown, lines, node), ...bodyNodes.map((bodyNode) => getNodeMarkdown(markdown, lines, bodyNode))]
+					.filter((part) => part.trim().length > 0)
+					.join("\n\n"),
+				scopeId: childScopeId
+			});
+
+			buildScope(
+				bodyNodes,
+				childScopeId,
+				toString(node).trim(),
+				shellPath,
+				scopes,
+				markdown,
+				lines
+			);
+		});
 	}
-	return path.map((entry) => entry.title);
+
+	scopes[scopeId] = {
+		id: scopeId,
+		title,
+		startLine: nodes.length ? getNodeStartLine(nodes[0]) : 0,
+		endLine: nodes.length ? getNodeEndLine(nodes[nodes.length - 1]) : 0,
+		depth: minDepth,
+		sections: scopeSections,
+		orphans: scopeOrphans
+	};
 }
 
-function collectOrphans(lines: string[], start: number, end: number): OrphanNode[] {
-	if (end < start) {
+function buildShellLessNodes(
+	nodes: Content[],
+	scopeId: string,
+	markdown: string,
+	lines: string[],
+	parentPath: string[]
+) {
+	if (!nodes.length) {
 		return [];
 	}
 
-	const content = lines.slice(start, end + 1).join("\n").trim();
-	if (!content) {
-		return [];
+	const headings = nodes
+		.map((node, index) => (node.type === "heading" ? { node, index } : null))
+		.filter(Boolean) as Array<{ node: Heading; index: number }>;
+	if (!headings.length) {
+		return [
+			{
+				id: `orphan:${scopeId}:0`,
+				content: nodes.map((node) => getNodeMarkdown(markdown, lines, node)).join("\n\n"),
+				startLine: getNodeStartLine(nodes[0]),
+				endLine: getNodeEndLine(nodes[nodes.length - 1]),
+				scopeId
+			}
+		];
 	}
 
-	return [
-		{
-			id: "orphan:root",
-			content,
-			startLine: start,
-			endLine: end
-		}
-	];
+	const minDepth = Math.min(...headings.map(({ node }) => node.depth));
+	const groups = headings.filter(({ node }) => node.depth === minDepth);
+	const orphans: OrphanNode[] = [];
+	const prefix = nodes.slice(0, groups[0]?.index ?? 0);
+	if (prefix.length) {
+		orphans.push({
+			id: `orphan:${scopeId}:prefix`,
+			content: prefix.map((node) => getNodeMarkdown(markdown, lines, node)).join("\n\n"),
+			startLine: getNodeStartLine(prefix[0]),
+			endLine: getNodeEndLine(prefix[prefix.length - 1]),
+			scopeId
+		});
+	}
+
+	groups.forEach(({ node, index }, groupIndex) => {
+		const nextIndex = groups[groupIndex + 1]?.index ?? nodes.length;
+		const groupNodes = nodes.slice(index, nextIndex);
+		const label = [...parentPath, toString(node).trim()].join(" > ") || `${groupIndex}`;
+		orphans.push({
+			id: `orphan:${scopeId}:${label}`,
+			content: groupNodes
+				.map((groupNode) => getNodeMarkdown(markdown, lines, groupNode))
+				.join("\n\n"),
+			startLine: getNodeStartLine(groupNodes[0]),
+			endLine: getNodeEndLine(groupNodes[groupNodes.length - 1]),
+			scopeId
+		});
+	});
+
+	return orphans.filter((orphan) => orphan.content.trim().length > 0);
+}
+
+function getScopeEndLine(nodes: Content[], heading: Heading, lines: string[]) {
+	if (!nodes.length) {
+		return Math.max(getNodeStartLine(heading), getNodeEndLine(heading));
+	}
+	return Math.max(
+		getNodeEndLine(nodes[nodes.length - 1]),
+		getNodeEndLine(heading),
+		lines.length - 1
+	);
+}
+
+function getNodeMarkdown(markdown: string, lines: string[], node: Content | Heading) {
+	const startOffset = node.position?.start.offset;
+	const endOffset = node.position?.end.offset;
+	if (typeof startOffset === "number" && typeof endOffset === "number") {
+		return markdown.slice(startOffset, endOffset);
+	}
+	return lines
+		.slice(getNodeStartLine(node), getNodeEndLine(node) + 1)
+		.join("\n");
+}
+
+function getNodeStartLine(node: Content | Heading) {
+	return Math.max(0, (node.position?.start.line ?? 1) - 1);
+}
+
+function getNodeEndLine(node: Content | Heading) {
+	return Math.max(getNodeStartLine(node), (node.position?.end.line ?? 1) - 1);
+}
+
+function getParentScopeId(scopeId: string) {
+	if (scopeId === "scope:root") {
+		return null;
+	}
+	const rawPath = scopeId.slice("scope:".length);
+	const parts = rawPath.split(" > ");
+	if (parts.length <= 1) {
+		return "scope:root";
+	}
+	return `scope:${parts.slice(0, -1).join(" > ")}`;
 }
 
 function applyItemFrame(element: HTMLElement, state: CanvasItemState) {
 	element.style.left = `${STAGE_WIDTH / 2 + state.x}px`;
 	element.style.top = `${STAGE_HEIGHT / 2 + state.y}px`;
 	element.style.width = `${state.width}px`;
+	if (element.classList.contains("arkidian-orphan")) {
+		element.style.height = "auto";
+		element.style.minHeight = "0";
+		return;
+	}
 	element.style.minHeight = `${state.height}px`;
 }
 

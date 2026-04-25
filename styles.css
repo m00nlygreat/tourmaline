@@ -24,6 +24,18 @@
   cursor: pointer;
 }
 
+.arkidian-card-open-scope {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 3;
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 90%, transparent);
+  cursor: pointer;
+}
+
 .arkidian-canvas {
   position: relative;
   flex: 1;
@@ -108,6 +120,16 @@
   min-height: 260px;
 }
 
+.arkidian-orphan {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  backdrop-filter: none;
+}
+
 .arkidian-card-resize-handle {
   position: absolute;
   top: 0;
@@ -136,8 +158,24 @@
   overflow: auto;
 }
 
-.arkidian-orphan-body {
-  min-height: 140px;
+.arkidian-orphan .arkidian-preview {
+  padding: 4px 10px 4px 2px;
+  overflow: visible;
+}
+
+.arkidian-orphan .arkidian-card-resize-handle {
+  right: -10px;
+}
+
+.arkidian-orphan .arkidian-card-resize-handle::after {
+  width: 2px;
+  height: 22px;
+  right: 7px;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
+.arkidian-orphan:hover .arkidian-card-resize-handle::after {
+  background: color-mix(in srgb, var(--interactive-accent) 70%, var(--text-muted));
 }
 
 .arkidian-empty {

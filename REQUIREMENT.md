@@ -6,21 +6,19 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 
 ## Core Concept
 
-- Parse the current Markdown document into a heading-based tree.
+- Parse the current Markdown document with `remark`.
 - Detect the highest heading level used in the document.
-- Create canvas cards for each section at that highest heading level.
-- Each card contains:
-  - the section heading
-  - sibling Markdown elements belonging to that section
-  - nested child headings and their content, grouped inside the same card
-- Markdown blocks that do not belong to any parent heading are treated as orphan elements and rendered as freely movable canvas objects using the same Obsidian Markdown preview renderer as section cards.
+- The global canvas uses the document's highest-level headings as Shells.
+- Markdown blocks that do not belong to any Shell are rendered as Shell-less containers.
+- If a Shell-less region contains the current scope's highest-level headings, those headings should be used to split that Shell-less region into multiple Shell-less containers.
 
 ## Editing Model
 
 - Current MVP uses preview-first cards on the canvas.
 - Direct editing inside cards is a later-stage feature.
 - Changes in the source `.md` document must resync the canvas view.
-- Double-clicking a section card opens the source note in a separate Obsidian window focused on that section.
+- Double-clicking a Shell enters that Shell's child canvas scope.
+- Ctrl/Cmd-double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
 
 ## Canvas Behavior
@@ -51,17 +49,24 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 
 - The Markdown file is the source of truth for content.
 - Canvas-specific metadata is stored in a sibling file named `<filename>.meta.json`.
-- The metadata file stores only visualization and layout state, such as:
-  - card and orphan ids
-  - mapping anchors to source content
-  - positions and sizes
-  - collapsed or expanded state
-  - viewport or zoom state
+- The metadata file stores only visualization and layout state.
+- Layout state is stored per canvas scope, not as one flat document-wide coordinate map.
 
 ## Identity Strategy
 
 - Content mapping should not rely only on line ranges.
 - Prefer stable structural anchors such as heading path or section identity, with line-range fallback if needed.
+
+## Canvas Levels
+
+- Any Shell can be entered as a deeper canvas scope.
+- Entering a Shell expands that Shell's body as a new canvas.
+- The same rules repeat inside every scope:
+  - find that scope's highest-level headings
+  - render them as Shells
+  - render non-Shell content as Shell-less containers
+- Drill-down continues until the scope contains no headings.
+- The maximum drill-down depth is determined from the deepest heading depth present in the document.
 
 ## MVP Scope
 
