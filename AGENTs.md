@@ -14,3 +14,4 @@
 ## Don't
 
 - Do not explicitly reflect the user's requests in the UI or text in a self-congratulatory or showy way.
+- Do not use native `button` elements unless the UI is explicitly a button; prefer role-appropriate elements with the needed interaction and accessibility wiring.

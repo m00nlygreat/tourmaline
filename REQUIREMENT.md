@@ -20,8 +20,8 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - YAML frontmatter is shown on the root canvas as an immediately editable property table card.
 - Changes in the source `.md` document must resync the canvas view.
 - Double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
-- Ctrl/Cmd-double-clicking a Shell enters that Shell's child canvas scope.
-- Ctrl/Cmd-double-clicking an orphan that contains its own heading hierarchy enters that orphan's child canvas scope.
+- Ctrl/Cmd-clicking a Shell enters that Shell's child canvas scope.
+- Ctrl/Cmd-clicking an orphan that contains its own heading hierarchy enters that orphan's child canvas scope.
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
 - Double-clicking an orphan opens the current level's source note in a separate Obsidian window focused on that orphan block.
 
@@ -49,6 +49,17 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Grid alignment must stay locked to the world origin `(0, 0)` during pan, scroll, zoom, and fit operations.
 - Cards and canvas objects remain regular DOM elements; only the background grid moves to canvas rendering for performance.
 - The top toolbar shows breadcrumbs on the left and action buttons grouped on the right.
+- A Figma-style layer panel sits on the left side of the view.
+- The layer panel shows the current canvas scope's elements and their descendants as a nested tree.
+- Layer order follows the source document order instead of grouping Shells and Shell-less blocks separately.
+- The layer panel should not repeat a Shell heading as both the Shell row and a child heading element.
+- Single-clicking a drillable layer only expands that layer's tree in the panel.
+- Double-clicking a layer opens its source block in the editor, matching canvas behavior.
+- Ctrl/Cmd-clicking a drillable layer enters that child canvas scope, matching canvas behavior.
+- Tree nodes can be folded and expanded with `>` and `v` controls.
+- Layer rows use source-like glyphs such as `##`, `>`, and `-` instead of type pills.
+- Layer rows should prefer built-in iconography for toggles and content type markers when available.
+- All Shell rows start collapsed by default in the layer panel.
 
 ## Metadata Storage
 

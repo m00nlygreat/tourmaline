@@ -27,3 +27,10 @@
 - Frontmatter card actions read cleaner when addition is a thin full-width footer affordance and deletion collapses to a small inline close control.
 - Frontmatter reads closer to the document flow when it is styled shell-less like an orphan block instead of a full shell card, with subdued inline controls.
 - Inline property editing feels lighter when the trailing add affordance disappears and the last row grows the table naturally via Enter or Tab.
+- Layer navigation only feels trustworthy when the left panel mirrors source order exactly; sorting visible items by source position avoids misleading Shell-first grouping.
+- Layer trees scan faster when folding is explicit and type pills are removed; source-like glyphs such as `##`, `>`, and `-` keep the panel readable without adding badge noise.
+- Literal text markers felt too raw in the layer panel; switching to Obsidian's built-in icon set keeps the tree cleaner while preserving the same structural cues.
+- Treating every clickable thing as a native button blurred UI intent; role-appropriate controls with shared keyboard handling keep semantics and styling easier to separate.
+- Layer panel navigation was too eager when single-click entered scopes immediately; making single-click expand only and reserving double-click / modifier-double-click for the same open-versus-enter split as the canvas keeps the mental model consistent.
+- Layer trees became noisy when entered scopes repeated their opening heading as both a Shell row and a child element; filtering scope-heading orphans out of the panel keeps the hierarchy readable without changing the canvas content.
+- Scope entry feels lighter as a modifier-click than a modifier-double-click; moving all enter actions to Ctrl/Cmd-click keeps drill-down fast while leaving plain double-click dedicated to opening source.
