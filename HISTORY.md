@@ -13,3 +13,6 @@
 - Zoom integration is simplest through the plugin's exported `window.ObsidianZoomPlugin.zoomIn(editor, line)` API after opening a popout Markdown editor on the target file.
 - Recursive canvas drill-down is easier to reason about when every canvas works on a scoped Markdown slice and repeats the same Shell versus Shell-less rules.
 - Scope-specific layout persistence avoids different drill-down levels fighting over one shared coordinate map.
+- Entered Shell scopes lost context when their opening heading disappeared; reinserting that heading as a scope-local orphan keeps each drill-down level anchored.
+- Global scope also needs an anchor, so showing the file name as a root orphan and moving navigation into breadcrumbs made each canvas level's context visible without crowding the action buttons.
+- Canvas navigation felt backwards with a dedicated Open button, so default double-click now opens source context, modifier double-click drills into Shells, and orphan blocks follow the same source-opening path.

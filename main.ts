@@ -162,6 +162,9 @@ class ArkidianView extends ItemView {
 	private currentFile: TFile | null = null;
 	private currentScopeId = "scope:root";
 	private parsedDocument: ParsedDocument | null = null;
+	private toolbarBreadcrumbsEl!: HTMLDivElement;
+	private toolbarActionsEl!: HTMLDivElement;
+	private backButtonEl!: HTMLButtonElement;
 	private canvasEl!: HTMLDivElement;
 	private scrollEl!: HTMLDivElement;
 	private gridCanvasEl!: HTMLCanvasElement;
@@ -200,8 +203,12 @@ class ArkidianView extends ItemView {
 		this.containerEl.addClass("arkidian-view");
 
 		const toolbar = this.containerEl.createDiv({ cls: "arkidian-toolbar" });
-		const backButton = toolbar.createEl("button", { text: "Back" });
-		backButton.addEventListener("click", () => {
+		this.toolbarBreadcrumbsEl = toolbar.createDiv({
+			cls: "arkidian-toolbar-breadcrumbs"
+		});
+		this.toolbarActionsEl = toolbar.createDiv({ cls: "arkidian-toolbar-actions" });
+		this.backButtonEl = this.toolbarActionsEl.createEl("button", { text: "Back" });
+		this.backButtonEl.addEventListener("click", () => {
 			if (!this.parsedDocument) {
 				return;
 			}
@@ -213,14 +220,16 @@ class ArkidianView extends ItemView {
 			this.fittedScopeId = null;
 			void this.renderCurrentFile();
 		});
-		const refreshButton = toolbar.createEl("button", { text: "Refresh" });
+		const refreshButton = this.toolbarActionsEl.createEl("button", {
+			text: "Refresh"
+		});
 		refreshButton.addEventListener("click", () => {
 			this.fittedFilePath = null;
 			this.fittedScopeId = null;
 			void this.renderCurrentFile();
 		});
 
-		const openActiveButton = toolbar.createEl("button", {
+		const openActiveButton = this.toolbarActionsEl.createEl("button", {
 			text: "Use Active File"
 		});
 		openActiveButton.addEventListener("click", async () => {
@@ -333,6 +342,7 @@ class ArkidianView extends ItemView {
 
 	private async renderCurrentFile() {
 		this.stageEl.empty();
+		this.renderToolbar();
 
 		if (!this.currentFile) {
 			this.renderEmptyState("Open a markdown file to populate the canvas.");
@@ -346,11 +356,13 @@ class ArkidianView extends ItemView {
 			this.currentScopeId = parsed.rootScopeId;
 		}
 		const scope = parsed.scopes[this.currentScopeId];
+		const scopeOrphans = this.getDisplayOrphans(scope);
 		const meta = await this.readMeta(this.currentFile);
 		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
 		const itemStates: CanvasItemState[] = [];
+		this.renderToolbar(scope);
 
-		if (!scope.sections.length && !scope.orphans.length) {
+		if (!scope.sections.length && !scopeOrphans.length) {
 			this.renderEmptyState("This document has no visible markdown blocks yet.");
 			this.fitViewportToOriginIfNeeded();
 			return;
@@ -363,7 +375,7 @@ class ArkidianView extends ItemView {
 			await this.renderSectionCard(section, state);
 		}
 
-		for (const [index, orphan] of scope.orphans.entries()) {
+		for (const [index, orphan] of scopeOrphans.entries()) {
 			const fallback = this.getDefaultItemState(orphan.id, index, true);
 			const state = scopeMeta.items[orphan.id] ?? fallback;
 			itemStates.push(state);
@@ -374,7 +386,7 @@ class ArkidianView extends ItemView {
 			zoom: scopeMeta.zoom,
 			items: {
 				...Object.fromEntries(
-					[...scope.sections, ...scope.orphans].map((node, index) => {
+					[...scope.sections, ...scopeOrphans].map((node, index) => {
 						const fallback = this.getDefaultItemState(
 							node.id,
 							index,
@@ -390,6 +402,58 @@ class ArkidianView extends ItemView {
 		});
 
 		this.fitViewportToItemsIfNeeded(itemStates, scopeMeta.zoom || 1);
+	}
+
+	private getDisplayOrphans(scope: ParsedScope): OrphanNode[] {
+		if (!this.currentFile || scope.id !== "scope:root") {
+			return scope.orphans;
+		}
+
+		return [createFileTitleOrphan(this.currentFile.basename), ...scope.orphans];
+	}
+
+	private renderToolbar(scope?: ParsedScope) {
+		this.toolbarBreadcrumbsEl.empty();
+
+		const rootLabel = this.currentFile?.basename ?? "Open markdown file";
+		const rootButton = this.toolbarBreadcrumbsEl.createEl("button", {
+			cls: `arkidian-breadcrumb${this.currentScopeId === "scope:root" ? " is-current" : ""}`,
+			text: rootLabel
+		});
+		rootButton.disabled = !this.currentFile || this.currentScopeId === "scope:root";
+		rootButton.addEventListener("click", () => {
+			if (!this.currentFile || this.currentScopeId === "scope:root") {
+				return;
+			}
+			this.currentScopeId = "scope:root";
+			this.fittedScopeId = null;
+			void this.renderCurrentFile();
+		});
+
+		const pathSegments = getScopePathSegments(scope?.id ?? this.currentScopeId);
+		pathSegments.forEach((segment, index) => {
+			this.toolbarBreadcrumbsEl.createSpan({
+				cls: "arkidian-breadcrumb-separator",
+				text: "/"
+			});
+			const targetScopeId = `scope:${pathSegments.slice(0, index + 1).join(" > ")}`;
+			const isCurrent = targetScopeId === this.currentScopeId;
+			const crumb = this.toolbarBreadcrumbsEl.createEl("button", {
+				cls: `arkidian-breadcrumb${isCurrent ? " is-current" : ""}`,
+				text: segment
+			});
+			crumb.disabled = isCurrent;
+			crumb.addEventListener("click", () => {
+				if (isCurrent) {
+					return;
+				}
+				this.currentScopeId = targetScopeId;
+				this.fittedScopeId = null;
+				void this.renderCurrentFile();
+			});
+		});
+
+		this.backButtonEl.disabled = this.currentScopeId === "scope:root";
 	}
 
 	private renderEmptyState(message: string) {
@@ -762,15 +826,6 @@ class ArkidianView extends ItemView {
 		await this.renderMarkdownPreview(preview, section.content);
 		state.height = Math.max(DEFAULT_CARD_HEIGHT, Math.ceil(card.offsetHeight));
 		applyItemFrame(card, state);
-		const openButton = card.createEl("button", {
-			cls: "arkidian-card-open-scope",
-			text: "Open"
-		});
-		openButton.addEventListener("click", (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			void this.enterScope(section.scopeId);
-		});
 		card.addEventListener("dblclick", (event) => {
 			if (shouldIgnoreCardActivation(event.target)) {
 				return;
@@ -778,10 +833,10 @@ class ArkidianView extends ItemView {
 			event.preventDefault();
 			event.stopPropagation();
 			if (event.metaKey || event.ctrlKey) {
-				void this.openSectionInPopout(section);
+				void this.enterScope(section.scopeId);
 				return;
 			}
-			void this.enterScope(section.scopeId);
+			void this.openSourceInPopout(section.startLine);
 		});
 
 		this.enableDragging(card, card, section.id, state);
@@ -796,6 +851,14 @@ class ArkidianView extends ItemView {
 		await this.renderMarkdownPreview(preview, orphan.content.trim());
 		state.height = Math.max(1, Math.ceil(item.offsetHeight));
 		applyItemFrame(item, state);
+		item.addEventListener("dblclick", (event) => {
+			if (shouldIgnoreCardActivation(event.target)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			void this.openSourceInPopout(orphan.startLine);
+		});
 
 		this.enableDragging(item, item, orphan.id, state);
 		this.enableCardResizing(item, orphan.id, state);
@@ -925,7 +988,7 @@ class ArkidianView extends ItemView {
 		});
 	}
 
-	private async openSectionInPopout(section: SectionNode) {
+	private async openSourceInPopout(line: number) {
 		if (!this.currentFile) {
 			return;
 		}
@@ -947,7 +1010,7 @@ class ArkidianView extends ItemView {
 				return;
 			}
 
-			const linePosition = { line: section.startLine, ch: 0 };
+			const linePosition = { line, ch: 0 };
 			editor.setCursor(linePosition);
 			editor.scrollIntoView({ from: linePosition, to: linePosition }, true);
 
@@ -957,10 +1020,10 @@ class ArkidianView extends ItemView {
 				return;
 			}
 
-			zoomPlugin.zoomIn(editor, section.startLine);
+			zoomPlugin.zoomIn(editor, line);
 		} catch (error) {
-			console.error("Arkidian: failed to open section in popout", error);
-			new Notice("Could not open this section in a new editor window.");
+			console.error("Arkidian: failed to open source in popout", error);
+			new Notice("Could not open this source block in a new editor window.");
 		}
 	}
 
@@ -1115,7 +1178,8 @@ function buildScope(
 	parentPath: string[],
 	scopes: Record<string, ParsedScope>,
 	markdown: string,
-	lines: string[]
+	lines: string[],
+	scopeHeading: Heading | null = null
 ) {
 	const headings = nodes
 		.map((node, index) => (node.type === "heading" ? { node, index } : null))
@@ -1126,6 +1190,12 @@ function buildScope(
 			: null;
 	const scopeSections: SectionNode[] = [];
 	const scopeOrphans: OrphanNode[] = [];
+
+	if (scopeHeading) {
+		scopeOrphans.push(
+			createScopeHeadingOrphan(scopeHeading, scopeId, markdown, lines)
+		);
+	}
 
 	if (minDepth === null) {
 		scopeOrphans.push(
@@ -1171,7 +1241,8 @@ function buildScope(
 				shellPath,
 				scopes,
 				markdown,
-				lines
+				lines,
+				node
 			);
 		});
 	}
@@ -1184,6 +1255,31 @@ function buildScope(
 		depth: minDepth,
 		sections: scopeSections,
 		orphans: scopeOrphans
+	};
+}
+
+function createScopeHeadingOrphan(
+	heading: Heading,
+	scopeId: string,
+	markdown: string,
+	lines: string[]
+): OrphanNode {
+	return {
+		id: `orphan:${scopeId}:scope-heading`,
+		content: getNodeMarkdown(markdown, lines, heading),
+		startLine: getNodeStartLine(heading),
+		endLine: getNodeEndLine(heading),
+		scopeId
+	};
+}
+
+function createFileTitleOrphan(fileName: string): OrphanNode {
+	return {
+		id: "orphan:scope:root:file-title",
+		content: `# ${escapeMarkdownHeadingText(fileName)}`,
+		startLine: 0,
+		endLine: 0,
+		scopeId: "scope:root"
 	};
 }
 
@@ -1285,6 +1381,21 @@ function getParentScopeId(scopeId: string) {
 		return "scope:root";
 	}
 	return `scope:${parts.slice(0, -1).join(" > ")}`;
+}
+
+function getScopePathSegments(scopeId: string) {
+	if (scopeId === "scope:root") {
+		return [];
+	}
+
+	return scopeId
+		.slice("scope:".length)
+		.split(" > ")
+		.filter((segment) => segment.length > 0);
+}
+
+function escapeMarkdownHeadingText(text: string) {
+	return text.replace(/([\\`*_{}\[\]()#+\-.!])/g, "\\$1");
 }
 
 function applyItemFrame(element: HTMLElement, state: CanvasItemState) {

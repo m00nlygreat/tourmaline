@@ -9,6 +9,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Parse the current Markdown document with `remark`.
 - Detect the highest heading level used in the document.
 - The global canvas uses the document's highest-level headings as Shells.
+- The global canvas also shows the current file name as an orphan-style heading object.
 - Markdown blocks that do not belong to any Shell are rendered as Shell-less containers.
 - If a Shell-less region contains the current scope's highest-level headings, those headings should be used to split that Shell-less region into multiple Shell-less containers.
 
@@ -17,9 +18,10 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Current MVP uses preview-first cards on the canvas.
 - Direct editing inside cards is a later-stage feature.
 - Changes in the source `.md` document must resync the canvas view.
-- Double-clicking a Shell enters that Shell's child canvas scope.
-- Ctrl/Cmd-double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
+- Double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
+- Ctrl/Cmd-double-clicking a Shell enters that Shell's child canvas scope.
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
+- Double-clicking an orphan opens the current level's source note in a separate Obsidian window focused on that orphan block.
 
 ## Canvas Behavior
 
@@ -44,6 +46,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - When zoomed out, the grid thins in discrete steps so dots keep a readable minimum on-screen spacing.
 - Grid alignment must stay locked to the world origin `(0, 0)` during pan, scroll, zoom, and fit operations.
 - Cards and canvas objects remain regular DOM elements; only the background grid moves to canvas rendering for performance.
+- The top toolbar shows breadcrumbs on the left and action buttons grouped on the right.
 
 ## Metadata Storage
 
@@ -61,6 +64,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 
 - Any Shell can be entered as a deeper canvas scope.
 - Entering a Shell expands that Shell's body as a new canvas.
+- Every entered canvas scope also renders the Shell heading that opened that scope as an orphan-style canvas object.
 - The same rules repeat inside every scope:
   - find that scope's highest-level headings
   - render them as Shells
@@ -75,6 +79,6 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Render orphan blocks as free canvas objects.
 - Support markdown preview in cards.
 - Use Obsidian Markdown preview rendering consistently for both section cards and orphan elements.
-- Support double-click handoff from a section card to the native Obsidian editor in a popout window.
+- Support double-click handoff from section cards and orphan elements to the native Obsidian editor in a popout window.
 - Persist canvas layout in `<filename>.meta.json`.
 - Resync canvas state when the Markdown source changes.
