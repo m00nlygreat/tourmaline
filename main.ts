@@ -17,6 +17,7 @@ const STAGE_WIDTH = 14000;
 const STAGE_HEIGHT = 9000;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 2.5;
+const MIN_SCROLLABLE_OVERFLOW = 2;
 const GRID_SPACING = 28;
 const GRID_DOT_RADIUS = 0.9;
 const MIN_GRID_SCREEN_SPACING = 14;
@@ -125,6 +126,8 @@ class ArkidianView extends ItemView {
 	private stageViewportEl!: HTMLDivElement;
 	private stageEl!: HTMLDivElement;
 	private zoom = 1;
+	private viewportOffsetX = 0;
+	private viewportOffsetY = 0;
 	private saveTimers = new Map<string, number>();
 	private zoomSaveTimer: number | null = null;
 	private isSpacePressed = false;
@@ -191,6 +194,8 @@ class ArkidianView extends ItemView {
 			this.scheduleGridRender();
 		});
 		this.resizeObserver = new ResizeObserver(() => {
+			this.enforceZoomBounds();
+			this.normalizeViewportPresentation();
 			this.scheduleGridRender();
 		});
 		this.resizeObserver.observe(this.canvasEl);
@@ -366,7 +371,7 @@ class ArkidianView extends ItemView {
 		event.preventDefault();
 
 		const zoomDelta = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-		const nextZoom = clamp(this.zoom * zoomDelta, MIN_ZOOM, MAX_ZOOM);
+		const nextZoom = clamp(this.zoom * zoomDelta, this.getMinZoom(), MAX_ZOOM);
 		if (nextZoom === this.zoom) {
 			return;
 		}
@@ -386,6 +391,7 @@ class ArkidianView extends ItemView {
 		this.stageViewportEl.style.width = `${STAGE_WIDTH * this.zoom}px`;
 		this.stageViewportEl.style.height = `${STAGE_HEIGHT * this.zoom}px`;
 		this.stageEl.style.transform = `scale(${this.zoom})`;
+		this.applyViewportOffset();
 		this.scheduleGridRender();
 	}
 
@@ -419,13 +425,13 @@ class ArkidianView extends ItemView {
 			const height = Math.max(bounds.maxY - bounds.minY, 1) + padding * 2;
 			const fitZoom = clamp(
 				Math.min(viewportWidth / width, viewportHeight / height),
-				MIN_ZOOM,
+				this.getMinZoom(),
 				MAX_ZOOM
 			);
 
 			this.zoom = Number.isFinite(fitZoom)
 				? fitZoom
-				: clamp(fallbackZoom, MIN_ZOOM, MAX_ZOOM);
+				: clamp(fallbackZoom, this.getMinZoom(), MAX_ZOOM);
 			this.syncStageZoom();
 			this.centerOnWorldPoint(bounds.centerX, bounds.centerY);
 			this.fittedFilePath = this.currentFile?.path ?? null;
@@ -435,13 +441,11 @@ class ArkidianView extends ItemView {
 	private centerOnWorldPoint(worldX: number, worldY: number) {
 		const stageX = STAGE_WIDTH / 2 + worldX;
 		const stageY = STAGE_HEIGHT / 2 + worldY;
-		this.scrollEl.scrollLeft = Math.max(
-			0,
-			stageX * this.zoom - this.scrollEl.clientWidth / 2
-		);
-		this.scrollEl.scrollTop = Math.max(
-			0,
-			stageY * this.zoom - this.scrollEl.clientHeight / 2
+		this.positionViewportAroundStagePoint(
+			stageX,
+			stageY,
+			this.scrollEl.clientWidth / 2,
+			this.scrollEl.clientHeight / 2
 		);
 		this.scheduleGridRender();
 	}
@@ -460,10 +464,35 @@ class ArkidianView extends ItemView {
 		});
 	}
 
+	private getMinZoom() {
+		const viewportWidth = Math.max(1, this.scrollEl?.clientWidth ?? 1);
+		const viewportHeight = Math.max(1, this.scrollEl?.clientHeight ?? 1);
+		const minScrollableZoom = Math.max(
+			(viewportWidth + MIN_SCROLLABLE_OVERFLOW) / STAGE_WIDTH,
+			(viewportHeight + MIN_SCROLLABLE_OVERFLOW) / STAGE_HEIGHT
+		);
+
+		return clamp(minScrollableZoom, MIN_ZOOM, MAX_ZOOM);
+	}
+
+	private enforceZoomBounds() {
+		const minZoom = this.getMinZoom();
+		if (this.zoom >= minZoom) {
+			return;
+		}
+
+		this.zoom = minZoom;
+		this.syncStageZoom();
+	}
+
 	private getStagePointFromViewport(viewportX: number, viewportY: number) {
 		return {
-			x: (this.scrollEl.scrollLeft + viewportX) / this.zoom,
-			y: (this.scrollEl.scrollTop + viewportY) / this.zoom
+			x:
+				(this.scrollEl.scrollLeft + viewportX - this.viewportOffsetX) /
+				this.zoom,
+			y:
+				(this.scrollEl.scrollTop + viewportY - this.viewportOffsetY) /
+				this.zoom
 		};
 	}
 
@@ -473,9 +502,85 @@ class ArkidianView extends ItemView {
 		viewportX: number,
 		viewportY: number
 	) {
-		this.scrollEl.scrollLeft = Math.max(0, stageX * this.zoom - viewportX);
-		this.scrollEl.scrollTop = Math.max(0, stageY * this.zoom - viewportY);
+		this.positionViewportAroundStagePoint(
+			stageX,
+			stageY,
+			viewportX,
+			viewportY
+		);
 		this.scheduleGridRender();
+	}
+
+	private positionViewportAroundStagePoint(
+		stageX: number,
+		stageY: number,
+		viewportX: number,
+		viewportY: number
+	) {
+		const xAxis = this.solveViewportAxis(
+			stageX * this.zoom,
+			viewportX,
+			STAGE_WIDTH * this.zoom,
+			this.scrollEl.clientWidth
+		);
+		const yAxis = this.solveViewportAxis(
+			stageY * this.zoom,
+			viewportY,
+			STAGE_HEIGHT * this.zoom,
+			this.scrollEl.clientHeight
+		);
+
+		this.scrollEl.scrollLeft = xAxis.scroll;
+		this.scrollEl.scrollTop = yAxis.scroll;
+		this.viewportOffsetX = xAxis.offset;
+		this.viewportOffsetY = yAxis.offset;
+		this.applyViewportOffset();
+	}
+
+	private normalizeViewportPresentation() {
+		const metrics = this.getViewportMetrics();
+		this.scrollEl.scrollLeft = clamp(this.scrollEl.scrollLeft, 0, metrics.maxScrollLeft);
+		this.scrollEl.scrollTop = clamp(this.scrollEl.scrollTop, 0, metrics.maxScrollTop);
+		this.viewportOffsetX = clamp(this.viewportOffsetX, 0, metrics.slackX);
+		this.viewportOffsetY = clamp(this.viewportOffsetY, 0, metrics.slackY);
+		this.applyViewportOffset();
+	}
+
+	private applyViewportOffset() {
+		this.stageViewportEl.style.left = `${this.viewportOffsetX}px`;
+		this.stageViewportEl.style.top = `${this.viewportOffsetY}px`;
+	}
+
+	private getViewportMetrics() {
+		const scaledWidth = STAGE_WIDTH * this.zoom;
+		const scaledHeight = STAGE_HEIGHT * this.zoom;
+		const viewportWidth = Math.max(1, this.scrollEl.clientWidth);
+		const viewportHeight = Math.max(1, this.scrollEl.clientHeight);
+
+		return {
+			scaledWidth,
+			scaledHeight,
+			viewportWidth,
+			viewportHeight,
+			maxScrollLeft: Math.max(0, scaledWidth - viewportWidth),
+			maxScrollTop: Math.max(0, scaledHeight - viewportHeight),
+			slackX: Math.max(0, viewportWidth - scaledWidth),
+			slackY: Math.max(0, viewportHeight - scaledHeight)
+		};
+	}
+
+	private solveViewportAxis(
+		scaledStagePoint: number,
+		viewportPoint: number,
+		scaledStageSize: number,
+		viewportSize: number
+	) {
+		const maxScroll = Math.max(0, scaledStageSize - viewportSize);
+		const slack = Math.max(0, viewportSize - scaledStageSize);
+		const scroll = clamp(scaledStagePoint - viewportPoint, 0, maxScroll);
+		const offset = clamp(viewportPoint - scaledStagePoint + scroll, 0, slack);
+
+		return { scroll, offset };
 	}
 
 	private scheduleGridRender() {
@@ -530,8 +635,10 @@ class ArkidianView extends ItemView {
 
 		const originX = STAGE_WIDTH / 2;
 		const originY = STAGE_HEIGHT / 2;
-		const screenOriginX = originX * this.zoom - this.scrollEl.scrollLeft;
-		const screenOriginY = originY * this.zoom - this.scrollEl.scrollTop;
+		const screenOriginX =
+			originX * this.zoom - this.scrollEl.scrollLeft + this.viewportOffsetX;
+		const screenOriginY =
+			originY * this.zoom - this.scrollEl.scrollTop + this.viewportOffsetY;
 		const startX =
 			mod(screenOriginX, spacing) - (screenOriginX < 0 ? 0 : spacing);
 		const startY =
