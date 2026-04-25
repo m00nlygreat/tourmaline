@@ -1,0 +1,82 @@
+.arkidian-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at top left, rgba(255, 180, 120, 0.14), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(90, 150, 255, 0.12), transparent 25%),
+    var(--background-primary);
+}
+
+.arkidian-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+}
+
+.arkidian-toolbar button {
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  cursor: pointer;
+}
+
+.arkidian-canvas {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+}
+
+.arkidian-stage {
+  position: relative;
+  min-width: 1400px;
+  min-height: 900px;
+  transform-origin: top left;
+}
+
+.arkidian-card,
+.arkidian-orphan {
+  position: absolute;
+  width: 360px;
+  min-height: 180px;
+  border: 2px solid color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+  border-radius: 18px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background-primary) 96%, transparent),
+      color-mix(in srgb, var(--background-secondary) 92%, transparent)
+    );
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--interactive-accent) 10%, transparent),
+    0 18px 44px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  cursor: grab;
+}
+
+.arkidian-card-body {
+  min-height: 260px;
+}
+
+.arkidian-preview {
+  padding: 18px 16px;
+  overflow: auto;
+}
+
+.arkidian-orphan-body {
+  padding: 16px 14px;
+  white-space: pre-wrap;
+}
+
+.arkidian-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--text-muted);
+  text-align: center;
+}

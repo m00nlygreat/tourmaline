@@ -1,0 +1,10 @@
+{
+  "id": "arkidian-canvas",
+  "name": "Arkidian Canvas",
+  "version": "0.0.1",
+  "minAppVersion": "1.5.0",
+  "description": "Open the current markdown file as a canvas of editable preview cards.",
+  "author": "m00nlygreat",
+  "authorUrl": "https://github.com/moonlygreat",
+  "isDesktopOnly": false
+}

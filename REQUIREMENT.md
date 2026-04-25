@@ -17,9 +17,8 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 
 ## Editing Model
 
-- Each card supports live Markdown preview on the canvas.
-- Each card supports direct editing on the canvas.
-- Edits made in cards must sync back to the source `.md` document.
+- Current MVP uses preview-first cards on the canvas.
+- Direct editing inside cards is a later-stage feature.
 - Changes in the source `.md` document must resync the canvas view.
 
 ## Canvas Behavior
@@ -49,6 +48,6 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Parse Markdown into heading tree plus orphan blocks.
 - Render highest-level sections as cards on a canvas.
 - Render orphan blocks as free canvas objects.
-- Support live preview and direct editing in cards.
+- Support markdown preview in cards.
 - Persist canvas layout in `<filename>.meta.json`.
 - Resync canvas state when the Markdown source changes.
