@@ -17,3 +17,13 @@
 - Global scope also needs an anchor, so showing the file name as a root orphan and moving navigation into breadcrumbs made each canvas level's context visible without crowding the action buttons.
 - Canvas navigation felt backwards with a dedicated Open button, so default double-click now opens source context, modifier double-click drills into Shells, and orphan blocks follow the same source-opening path.
 - Shell-less containers with internal headings also need recursive scopes; giving headed orphans their own child scopes keeps drill-down behavior consistent outside normal Shell boundaries.
+
+## 2026-04-26
+
+- Frontmatter should be treated as note properties, not canvas content; stripping it before Markdown scope parsing avoids bogus orphan blocks.
+- Editing frontmatter is safer through `app.fileManager.processFrontMatter()` than raw text replacement because Obsidian keeps YAML formatting and cache updates coherent.
+- A detached properties panel felt out of place; rendering frontmatter as a draggable root-canvas card keeps metadata editing in the same spatial workflow as the rest of Arkidian.
+- Frontmatter table interactions felt too modal; making each row directly editable inputs removed the extra Edit step and fit canvas manipulation better.
+- Frontmatter card actions read cleaner when addition is a thin full-width footer affordance and deletion collapses to a small inline close control.
+- Frontmatter reads closer to the document flow when it is styled shell-less like an orphan block instead of a full shell card, with subdued inline controls.
+- Inline property editing feels lighter when the trailing add affordance disappears and the last row grows the table naturally via Enter or Tab.

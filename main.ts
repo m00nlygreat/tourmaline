@@ -1,14 +1,17 @@
 import {
 	App,
+	getFrontMatterInfo,
 	ItemView,
 	MarkdownRenderer,
 	MarkdownView,
 	Notice,
 	Plugin,
+	setIcon,
 	TFile,
 	ViewStateResult,
 	WorkspaceLeaf
 } from "obsidian";
+import type { MetadataCache } from "obsidian";
 import type { Content, Heading, Root } from "mdast";
 import { toString } from "mdast-util-to-string";
 import remarkParse from "remark-parse";
@@ -87,6 +90,17 @@ type ParsedDocument = {
 type ArkidianViewState = {
 	file?: string;
 	scopeId?: string;
+};
+
+type FrontmatterTableRow = {
+	key: string;
+	value: string;
+};
+
+type FrontmatterItem = {
+	id: string;
+	scopeId: string;
+	rows: FrontmatterTableRow[];
 };
 
 type ZoomPluginApi = {
@@ -176,6 +190,7 @@ class ArkidianView extends ItemView {
 	private viewportOffsetY = 0;
 	private saveTimers = new Map<string, number>();
 	private zoomSaveTimer: number | null = null;
+	private suppressFileRefreshUntil = 0;
 	private isSpacePressed = false;
 	private fittedFilePath: string | null = null;
 	private fittedScopeId: string | null = null;
@@ -295,6 +310,9 @@ class ArkidianView extends ItemView {
 		this.registerEvent(
 			this.app.vault.on("modify", async (file) => {
 				if (this.currentFile && file.path === this.currentFile.path) {
+					if (Date.now() < this.suppressFileRefreshUntil) {
+						return;
+					}
 					await this.renderCurrentFile();
 				}
 			})
@@ -358,19 +376,32 @@ class ArkidianView extends ItemView {
 		}
 		const scope = parsed.scopes[this.currentScopeId];
 		const scopeOrphans = this.getDisplayOrphans(scope);
+		const frontmatterItem = this.getFrontmatterItem(scope);
 		const meta = await this.readMeta(this.currentFile);
 		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
 		const itemStates: CanvasItemState[] = [];
 		this.renderToolbar(scope);
 
-		if (!scope.sections.length && !scopeOrphans.length) {
+		if (!frontmatterItem && !scope.sections.length && !scopeOrphans.length) {
 			this.renderEmptyState("This document has no visible markdown blocks yet.");
 			this.fitViewportToOriginIfNeeded();
 			return;
 		}
 
+		if (frontmatterItem) {
+			const state =
+				scopeMeta.items[frontmatterItem.id] ??
+				this.getDefaultItemState(frontmatterItem.id, 0, false, true);
+			itemStates.push(state);
+			await this.renderFrontmatterCard(frontmatterItem, state);
+		}
+
 		for (const [index, section] of scope.sections.entries()) {
-			const fallback = this.getDefaultItemState(section.id, index, false);
+			const fallback = this.getDefaultItemState(
+				section.id,
+				index + (frontmatterItem ? 1 : 0),
+				false
+			);
 			const state = scopeMeta.items[section.id] ?? fallback;
 			itemStates.push(state);
 			await this.renderSectionCard(section, state);
@@ -383,15 +414,21 @@ class ArkidianView extends ItemView {
 			await this.renderOrphan(orphan, state);
 		}
 
+		const persistedNodes = [
+			...(frontmatterItem ? [frontmatterItem] : []),
+			...scope.sections,
+			...scopeOrphans
+		];
 		meta.scopes[this.currentScopeId] = {
 			zoom: scopeMeta.zoom,
 			items: {
 				...Object.fromEntries(
-					[...scope.sections, ...scopeOrphans].map((node, index) => {
+					persistedNodes.map((node, index) => {
 						const fallback = this.getDefaultItemState(
 							node.id,
 							index,
-							"id" in node && node.id.startsWith("orphan")
+							"id" in node && node.id.startsWith("orphan"),
+							frontmatterItem ? index === 0 : false
 						);
 						return [node.id, scopeMeta.items[node.id] ?? fallback];
 					})
@@ -411,6 +448,25 @@ class ArkidianView extends ItemView {
 		}
 
 		return [createFileTitleOrphan(this.currentFile.basename), ...scope.orphans];
+	}
+
+	private getFrontmatterItem(scope: ParsedScope): FrontmatterItem | null {
+		if (!this.currentFile || scope.id !== "scope:root") {
+			return null;
+		}
+
+		const rows = Object.entries(
+			this.getFrontmatterValues(this.currentFile, this.app.metadataCache)
+		).map(([key, value]) => ({
+			key,
+			value: stringifyFrontmatterValue(value)
+		}));
+
+		return {
+			id: "frontmatter:scope:root",
+			scopeId: scope.id,
+			rows
+		};
 	}
 
 	private renderToolbar(scope?: ParsedScope) {
@@ -455,6 +511,58 @@ class ArkidianView extends ItemView {
 		});
 
 		this.backButtonEl.disabled = this.currentScopeId === "scope:root";
+	}
+
+	private getFrontmatterValues(file: TFile, metadataCache: MetadataCache) {
+		const cache = metadataCache.getFileCache(file)?.frontmatter;
+		if (!cache) {
+			return {};
+		}
+
+		return Object.fromEntries(
+			Object.entries(cache).filter(([, value]) => typeof value !== "undefined")
+		);
+	}
+
+	private async saveFrontmatterRow(row: FrontmatterTableRow, previousKey?: string) {
+		if (!this.currentFile) {
+			return;
+		}
+
+		if (!row.key) {
+			new Notice("Property key is required.");
+			return;
+		}
+
+		try {
+			this.suppressFileRefreshUntil = Date.now() + 800;
+			const parsedValue = parseFrontmatterValue(row.value);
+			await this.app.fileManager.processFrontMatter(this.currentFile, (frontmatter) => {
+				if (previousKey && previousKey !== row.key) {
+					delete frontmatter[previousKey];
+				}
+				frontmatter[row.key] = parsedValue;
+			});
+		} catch (error) {
+			console.error("Arkidian: failed to save frontmatter row", error);
+			new Notice("Could not save this property.");
+		}
+	}
+
+	private async deleteFrontmatterKey(key: string) {
+		if (!this.currentFile) {
+			return;
+		}
+
+		try {
+			this.suppressFileRefreshUntil = Date.now() + 800;
+			await this.app.fileManager.processFrontMatter(this.currentFile, (frontmatter) => {
+				delete frontmatter[key];
+			});
+		} catch (error) {
+			console.error("Arkidian: failed to delete frontmatter key", error);
+			new Notice("Could not delete this property.");
+		}
 	}
 
 	private renderEmptyState(message: string) {
@@ -870,6 +978,195 @@ class ArkidianView extends ItemView {
 		this.enableCardResizing(item, orphan.id, state);
 	}
 
+	private async renderFrontmatterCard(
+		frontmatter: FrontmatterItem,
+		state: CanvasItemState
+	) {
+		const card = this.stageEl.createDiv({
+			cls: "arkidian-orphan arkidian-frontmatter-card"
+		});
+		applyItemFrame(card, state);
+
+		const body = card.createDiv({ cls: "arkidian-frontmatter-card-body" });
+		const table = body.createEl("table", {
+			cls: "arkidian-frontmatter-table"
+		});
+		const tbody = table.createEl("tbody");
+		const rows: Array<{ keyInput: HTMLInputElement; valueInput: HTMLInputElement }> =
+			[];
+
+		const focusOrCreateNextRow = (
+			currentKeyInput: HTMLInputElement,
+			target: "key" | "value"
+		) => {
+			const index = rows.findIndex((row) => row.keyInput === currentKeyInput);
+			if (index === -1) {
+				return;
+			}
+
+			const next = rows[index + 1];
+			if (next) {
+				(target === "key" ? next.keyInput : next.valueInput).focus();
+				return;
+			}
+
+			const input = appendInputRow();
+			if (target === "key") {
+				input.focus();
+			} else {
+				const created = rows[rows.length - 1];
+				created?.valueInput.focus();
+			}
+		};
+
+		const appendInputRow = (existing?: FrontmatterTableRow) => {
+			const row = tbody.createEl("tr", {
+				cls: "arkidian-frontmatter-input-row"
+			});
+			let persistedKey = existing?.key;
+			const keyCell = row.createEl("td");
+			const keyInput = keyCell.createEl("input", {
+				type: "text",
+				placeholder: "key"
+			});
+			keyInput.value = existing?.key ?? "";
+			const valueCell = row.createEl("td");
+			const valueInput = valueCell.createEl("input", {
+				type: "text",
+				placeholder: "value"
+			});
+			valueInput.value = existing?.value ?? "";
+			const actions = row.createEl("td", {
+				cls: "arkidian-frontmatter-actions-cell"
+			});
+			const deleteButton = actions.createEl("button", {
+				cls: "arkidian-frontmatter-delete-button",
+				attr: {
+					type: "button",
+					"aria-label": "Delete property",
+					tabindex: "-1"
+				}
+			});
+			setIcon(deleteButton, "x");
+			let saveTimer: number | null = null;
+			const rowInputs = { keyInput, valueInput };
+			rows.push(rowInputs);
+
+			const save = async () => {
+				const nextRow = {
+					key: keyInput.value.trim(),
+					value: valueInput.value.trim()
+				};
+				if (!nextRow.key && !nextRow.value && !existing?.key) {
+					const rowIndex = rows.indexOf(rowInputs);
+					if (rowIndex !== -1) {
+						rows.splice(rowIndex, 1);
+					}
+					row.remove();
+					this.refreshFrontmatterCardHeight(card, state);
+					return;
+				}
+				if (!nextRow.key) {
+					return;
+				}
+
+				await this.saveFrontmatterRow(nextRow, persistedKey);
+				persistedKey = nextRow.key;
+			};
+
+			const queueSave = () => {
+				if (saveTimer !== null) {
+					window.clearTimeout(saveTimer);
+				}
+				saveTimer = window.setTimeout(() => {
+					void save();
+					saveTimer = null;
+				}, 350);
+			};
+
+			deleteButton.addEventListener("click", () => {
+				if (!existing?.key && !keyInput.value.trim() && !valueInput.value.trim()) {
+					const rowIndex = rows.indexOf(rowInputs);
+					if (rowIndex !== -1) {
+						rows.splice(rowIndex, 1);
+					}
+					row.remove();
+					this.refreshFrontmatterCardHeight(card, state);
+					return;
+				}
+				if (existing?.key) {
+					const rowIndex = rows.indexOf(rowInputs);
+					if (rowIndex !== -1) {
+						rows.splice(rowIndex, 1);
+					}
+					row.remove();
+					this.refreshFrontmatterCardHeight(card, state);
+					void this.deleteFrontmatterKey(persistedKey);
+				}
+			});
+
+			keyInput.addEventListener("input", queueSave);
+			valueInput.addEventListener("input", queueSave);
+			keyInput.addEventListener("blur", () => {
+				void save();
+			});
+			valueInput.addEventListener("blur", () => {
+				void save();
+			});
+			keyInput.addEventListener("keydown", (event) => {
+				if (event.key === "Enter") {
+					event.preventDefault();
+					void save();
+					focusOrCreateNextRow(keyInput, "key");
+				}
+				if (event.key === "Tab" && !event.shiftKey) {
+					event.preventDefault();
+					if (keyInput === rows[rows.length - 1]?.keyInput) {
+						void save();
+					}
+					valueInput.focus();
+				}
+			});
+			valueInput.addEventListener("keydown", (event) => {
+				if (event.key === "Enter") {
+					event.preventDefault();
+					void save();
+					focusOrCreateNextRow(keyInput, "key");
+				}
+				if (
+					event.key === "Tab" &&
+					!event.shiftKey &&
+					valueInput === rows[rows.length - 1]?.valueInput
+				) {
+					event.preventDefault();
+					void save();
+					focusOrCreateNextRow(keyInput, "key");
+				}
+			});
+
+			this.refreshFrontmatterCardHeight(card, state);
+			return keyInput;
+		};
+
+		if (!frontmatter.rows.length) {
+			appendInputRow();
+		} else {
+			frontmatter.rows.forEach((rowData) => {
+				appendInputRow(rowData);
+			});
+		}
+
+		this.refreshFrontmatterCardHeight(card, state);
+		this.enableDragging(card, card, frontmatter.id, state);
+		this.enableCardResizing(card, frontmatter.id, state);
+	}
+
+	private refreshFrontmatterCardHeight(card: HTMLElement, state: CanvasItemState) {
+		card.style.minHeight = "0px";
+		state.height = Math.max(72, Math.ceil(card.scrollHeight));
+		applyItemFrame(card, state);
+	}
+
 	private enableDragging(
 		target: HTMLElement,
 		handle: HTMLElement,
@@ -897,6 +1194,9 @@ class ArkidianView extends ItemView {
 
 		handle.addEventListener("pointerdown", (event) => {
 			if (this.isSpacePressed || event.button !== 0) {
+				return;
+			}
+			if (isInteractiveTarget(event.target)) {
 				return;
 			}
 			startX = event.clientX;
@@ -1139,17 +1439,29 @@ class ArkidianView extends ItemView {
 	private getDefaultItemState(
 		id: string,
 		index: number,
-		isOrphan: boolean
+		isOrphan: boolean,
+		isFrontmatter = false
 	): CanvasItemState {
 		const cardSpacingX = 460;
 		const cardSpacingY = 380;
 		const orphanSpacingY = 190;
 		const column = index % 3;
 		const row = Math.floor(index / 3);
+		if (isFrontmatter) {
+			return {
+				id,
+				x: -cardSpacingX - 80,
+				y: -cardSpacingY,
+				width: 520,
+				height: DEFAULT_CARD_HEIGHT
+			};
+		}
 
 		return {
 			id,
-			x: isOrphan ? -DEFAULT_CARD_WIDTH - 220 : (column - 1) * cardSpacingX,
+			x: isOrphan
+				? -DEFAULT_CARD_WIDTH - 220
+				: (column - 1) * cardSpacingX,
 			y: isOrphan
 				? -DEFAULT_CARD_HEIGHT / 2 + index * orphanSpacingY
 				: (row - 1) * cardSpacingY,
@@ -1160,13 +1472,27 @@ class ArkidianView extends ItemView {
 }
 
 function parseMarkdownStructure(markdown: string): ParsedDocument {
-	const tree = unified().use(remarkParse).parse(markdown) as Root;
-	const lines = markdown.split(/\r?\n/);
+	const frontmatterInfo = getFrontMatterInfo(markdown);
+	const body = frontmatterInfo.exists
+		? markdown.slice(frontmatterInfo.contentStart)
+		: markdown;
+	const lineOffset = getLineCount(markdown.slice(0, frontmatterInfo.contentStart));
+	const tree = unified().use(remarkParse).parse(body) as Root;
+	const lines = body.split(/\r?\n/);
 	const scopes: Record<string, ParsedScope> = {};
 	const allHeadings = tree.children.filter(
 		(node): node is Heading => node.type === "heading"
 	);
-	buildScope(tree.children, "scope:root", "Global", [], scopes, markdown, lines);
+	buildScope(
+		tree.children,
+		"scope:root",
+		"Global",
+		[],
+		scopes,
+		body,
+		lines,
+		lineOffset
+	);
 	return {
 		scopes,
 		rootScopeId: "scope:root",
@@ -1185,6 +1511,7 @@ function buildScope(
 	scopes: Record<string, ParsedScope>,
 	markdown: string,
 	lines: string[],
+	lineOffset: number,
 	scopeHeading: Heading | null = null
 ) {
 	const headings = nodes
@@ -1211,7 +1538,8 @@ function buildScope(
 				markdown,
 				lines,
 				parentPath,
-				scopes
+				scopes,
+				lineOffset
 			)
 		);
 	} else {
@@ -1224,7 +1552,8 @@ function buildScope(
 				markdown,
 				lines,
 				parentPath,
-				scopes
+				scopes,
+				lineOffset
 			)
 		);
 
@@ -1240,8 +1569,8 @@ function buildScope(
 				title: toString(node).trim(),
 				level: node.depth,
 				path: shellPath,
-				startLine: getNodeStartLine(node),
-				endLine: getScopeEndLine(bodyNodes, node, lines),
+				startLine: getNodeStartLine(node, lineOffset),
+				endLine: getScopeEndLine(bodyNodes, node, lines, lineOffset),
 				content: [getNodeMarkdown(markdown, lines, node), ...bodyNodes.map((bodyNode) => getNodeMarkdown(markdown, lines, bodyNode))]
 					.filter((part) => part.trim().length > 0)
 					.join("\n\n"),
@@ -1256,6 +1585,7 @@ function buildScope(
 				scopes,
 				markdown,
 				lines,
+				lineOffset,
 				node
 			);
 		});
@@ -1264,8 +1594,8 @@ function buildScope(
 	scopes[scopeId] = {
 		id: scopeId,
 		title,
-		startLine: nodes.length ? getNodeStartLine(nodes[0]) : 0,
-		endLine: nodes.length ? getNodeEndLine(nodes[nodes.length - 1]) : 0,
+		startLine: nodes.length ? getNodeStartLine(nodes[0], lineOffset) : 0,
+		endLine: nodes.length ? getNodeEndLine(nodes[nodes.length - 1], lineOffset) : 0,
 		depth: minDepth,
 		sections: scopeSections,
 		orphans: scopeOrphans
@@ -1276,13 +1606,14 @@ function createScopeHeadingOrphan(
 	heading: Heading,
 	scopeId: string,
 	markdown: string,
-	lines: string[]
+	lines: string[],
+	lineOffset: number
 ): OrphanNode {
 	return {
 		id: `orphan:${scopeId}:scope-heading`,
 		content: getNodeMarkdown(markdown, lines, heading),
-		startLine: getNodeStartLine(heading),
-		endLine: getNodeEndLine(heading),
+		startLine: getNodeStartLine(heading, lineOffset),
+		endLine: getNodeEndLine(heading, lineOffset),
 		scopeId
 	};
 }
@@ -1303,7 +1634,8 @@ function buildShellLessNodes(
 	markdown: string,
 	lines: string[],
 	parentPath: string[],
-	scopes: Record<string, ParsedScope>
+	scopes: Record<string, ParsedScope>,
+	lineOffset: number
 ) {
 	if (!nodes.length) {
 		return [];
@@ -1317,8 +1649,8 @@ function buildShellLessNodes(
 			{
 				id: `orphan:${scopeId}:0`,
 				content: nodes.map((node) => getNodeMarkdown(markdown, lines, node)).join("\n\n"),
-				startLine: getNodeStartLine(nodes[0]),
-				endLine: getNodeEndLine(nodes[nodes.length - 1]),
+				startLine: getNodeStartLine(nodes[0], lineOffset),
+				endLine: getNodeEndLine(nodes[nodes.length - 1], lineOffset),
 				scopeId
 			}
 		];
@@ -1332,8 +1664,8 @@ function buildShellLessNodes(
 		orphans.push({
 			id: `orphan:${scopeId}:prefix`,
 			content: prefix.map((node) => getNodeMarkdown(markdown, lines, node)).join("\n\n"),
-			startLine: getNodeStartLine(prefix[0]),
-			endLine: getNodeEndLine(prefix[prefix.length - 1]),
+			startLine: getNodeStartLine(prefix[0], lineOffset),
+			endLine: getNodeEndLine(prefix[prefix.length - 1], lineOffset),
 			scopeId
 		});
 	}
@@ -1354,6 +1686,7 @@ function buildShellLessNodes(
 			scopes,
 			markdown,
 			lines,
+			lineOffset,
 			node
 		);
 
@@ -1362,8 +1695,8 @@ function buildShellLessNodes(
 			content: groupNodes
 				.map((groupNode) => getNodeMarkdown(markdown, lines, groupNode))
 				.join("\n\n"),
-			startLine: getNodeStartLine(groupNodes[0]),
-			endLine: getNodeEndLine(groupNodes[groupNodes.length - 1]),
+			startLine: getNodeStartLine(groupNodes[0], lineOffset),
+			endLine: getNodeEndLine(groupNodes[groupNodes.length - 1], lineOffset),
 			scopeId,
 			childScopeId
 		});
@@ -1372,14 +1705,22 @@ function buildShellLessNodes(
 	return orphans.filter((orphan) => orphan.content.trim().length > 0);
 }
 
-function getScopeEndLine(nodes: Content[], heading: Heading, lines: string[]) {
+function getScopeEndLine(
+	nodes: Content[],
+	heading: Heading,
+	lines: string[],
+	lineOffset: number
+) {
 	if (!nodes.length) {
-		return Math.max(getNodeStartLine(heading), getNodeEndLine(heading));
+		return Math.max(
+			getNodeStartLine(heading, lineOffset),
+			getNodeEndLine(heading, lineOffset)
+		);
 	}
 	return Math.max(
-		getNodeEndLine(nodes[nodes.length - 1]),
-		getNodeEndLine(heading),
-		lines.length - 1
+		getNodeEndLine(nodes[nodes.length - 1], lineOffset),
+		getNodeEndLine(heading, lineOffset),
+		lineOffset + lines.length - 1
 	);
 }
 
@@ -1394,12 +1735,15 @@ function getNodeMarkdown(markdown: string, lines: string[], node: Content | Head
 		.join("\n");
 }
 
-function getNodeStartLine(node: Content | Heading) {
-	return Math.max(0, (node.position?.start.line ?? 1) - 1);
+function getNodeStartLine(node: Content | Heading, lineOffset = 0) {
+	return Math.max(0, lineOffset + (node.position?.start.line ?? 1) - 1);
 }
 
-function getNodeEndLine(node: Content | Heading) {
-	return Math.max(getNodeStartLine(node), (node.position?.end.line ?? 1) - 1);
+function getNodeEndLine(node: Content | Heading, lineOffset = 0) {
+	return Math.max(
+		getNodeStartLine(node, lineOffset),
+		lineOffset + (node.position?.end.line ?? 1) - 1
+	);
 }
 
 function getParentScopeId(scopeId: string) {
@@ -1427,6 +1771,49 @@ function getScopePathSegments(scopeId: string) {
 
 function escapeMarkdownHeadingText(text: string) {
 	return text.replace(/([\\`*_{}\[\]()#+\-.!])/g, "\\$1");
+}
+
+function getLineCount(text: string) {
+	if (!text.length) {
+		return 0;
+	}
+
+	return text.split(/\r?\n/).length - 1;
+}
+
+function stringifyFrontmatterValue(value: unknown) {
+	if (typeof value === "string") {
+		return value;
+	}
+
+	return JSON.stringify(value);
+}
+
+function parseFrontmatterValue(value: string) {
+	if (!value.length) {
+		return "";
+	}
+
+	if (value === "true") {
+		return true;
+	}
+	if (value === "false") {
+		return false;
+	}
+	if (value === "null") {
+		return null;
+	}
+	if (/^-?\d+(\.\d+)?$/.test(value)) {
+		return Number(value);
+	}
+	if (
+		(value.startsWith("[") && value.endsWith("]")) ||
+		(value.startsWith("{") && value.endsWith("}"))
+	) {
+		return JSON.parse(value);
+	}
+
+	return value;
 }
 
 function applyItemFrame(element: HTMLElement, state: CanvasItemState) {
@@ -1486,5 +1873,16 @@ function shouldIgnoreCardActivation(target: EventTarget | null) {
 	return (
 		target instanceof HTMLElement &&
 		(Boolean(target.closest("a")) || isTypingTarget(target))
+	);
+}
+
+function isInteractiveTarget(target: EventTarget | null) {
+	return (
+		target instanceof HTMLElement &&
+		(Boolean(target.closest("button")) ||
+			Boolean(target.closest("input")) ||
+			Boolean(target.closest("textarea")) ||
+			Boolean(target.closest("select")) ||
+			Boolean(target.closest("label")))
 	);
 }

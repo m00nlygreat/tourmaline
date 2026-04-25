@@ -64,6 +64,123 @@
   flex: 0 0 auto;
 }
 
+.arkidian-frontmatter-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.arkidian-frontmatter-table td {
+  padding: 6px 0;
+  border-top: 1px solid var(--background-modifier-border);
+  vertical-align: top;
+  text-align: left;
+}
+
+.arkidian-frontmatter-table td:first-child {
+  width: 36%;
+}
+
+.arkidian-frontmatter-table td:nth-child(2) {
+  width: auto;
+}
+
+.arkidian-frontmatter-actions-cell {
+  position: relative;
+  width: 28px;
+  padding-left: 10px;
+  padding-right: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  vertical-align: middle;
+}
+
+.arkidian-frontmatter-card {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  backdrop-filter: none;
+  padding: 6px 8px;
+}
+
+.arkidian-frontmatter-card-body {
+  padding: 0;
+}
+
+.arkidian-frontmatter-table input {
+  width: 100%;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  padding: 6px 10px;
+}
+
+.arkidian-frontmatter-table input:hover {
+  background: transparent;
+}
+
+.arkidian-frontmatter-table input:focus {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.arkidian-frontmatter-delete-button {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-faint) 58%, transparent);
+  opacity: 0.8;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.arkidian-frontmatter-delete-button:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 28%, transparent);
+  color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+  opacity: 1;
+}
+
+.arkidian-frontmatter-delete-button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.arkidian-frontmatter-card .arkidian-card-resize-handle::after {
+  width: 2px;
+  height: 20px;
+  right: 7px;
+  background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+}
+
+.arkidian-frontmatter-card:hover .arkidian-card-resize-handle::after {
+  background: color-mix(in srgb, var(--text-muted) 58%, transparent);
+}
+
+.arkidian-frontmatter-card.arkidian-orphan {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  backdrop-filter: none;
+}
+
 .arkidian-canvas {
   position: relative;
   flex: 1;
@@ -212,4 +329,10 @@
   height: 100%;
   color: var(--text-muted);
   text-align: center;
+}
+
+@media (max-width: 900px) {
+  .arkidian-frontmatter-actions-cell {
+    text-align: right;
+  }
 }

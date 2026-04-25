@@ -17,6 +17,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 
 - Current MVP uses preview-first cards on the canvas.
 - Direct editing inside cards is a later-stage feature.
+- YAML frontmatter is shown on the root canvas as an immediately editable property table card.
 - Changes in the source `.md` document must resync the canvas view.
 - Double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
 - Ctrl/Cmd-double-clicking a Shell enters that Shell's child canvas scope.
@@ -78,10 +79,12 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 ## MVP Scope
 
 - Parse Markdown into heading tree plus orphan blocks.
+- Exclude YAML frontmatter from canvas body parsing.
 - Render highest-level sections as cards on a canvas.
 - Render orphan blocks as free canvas objects.
 - Support markdown preview in cards.
 - Use Obsidian Markdown preview rendering consistently for both section cards and orphan elements.
+- Show frontmatter as a canvas card with immediate table editing and persist edits back into the source Markdown via Obsidian APIs.
 - Support double-click handoff from section cards and orphan elements to the native Obsidian editor in a popout window.
 - Persist canvas layout in `<filename>.meta.json`.
 - Resync canvas state when the Markdown source changes.
