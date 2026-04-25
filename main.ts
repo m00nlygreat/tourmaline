@@ -2,6 +2,7 @@ import {
 	App,
 	ItemView,
 	MarkdownRenderer,
+	MarkdownView,
 	Notice,
 	Plugin,
 	TFile,
@@ -64,6 +65,21 @@ type ParsedDocument = {
 type ArkidianViewState = {
 	file?: string;
 };
+
+type ZoomPluginApi = {
+	zoomIn(editor: EditorLike, line: number): void;
+};
+
+type EditorLike = {
+	setCursor(pos: { line: number; ch: number }): void;
+	scrollIntoView(range: { from: { line: number; ch: number }; to?: { line: number; ch: number } }, center?: boolean): void;
+};
+
+declare global {
+	interface Window {
+		ObsidianZoomPlugin?: ZoomPluginApi;
+	}
+}
 
 export default class ArkidianPlugin extends Plugin {
 	async onload() {
@@ -682,6 +698,14 @@ class ArkidianView extends ItemView {
 		const body = card.createDiv({ cls: "arkidian-card-body" });
 		const preview = body.createDiv({ cls: "arkidian-preview" });
 		void this.renderMarkdownPreview(preview, section.content);
+		card.addEventListener("dblclick", (event) => {
+			if (shouldIgnoreCardActivation(event.target)) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			void this.openSectionInPopout(section);
+		});
 
 		this.enableDragging(card, card, section.id, state);
 		this.enableCardResizing(card, section.id, state);
@@ -820,6 +844,45 @@ class ArkidianView extends ItemView {
 		container.querySelectorAll("img").forEach((image) => {
 			image.draggable = false;
 		});
+	}
+
+	private async openSectionInPopout(section: SectionNode) {
+		if (!this.currentFile) {
+			return;
+		}
+
+		try {
+			const leaf = this.app.workspace.openPopoutLeaf();
+			await leaf.openFile(this.currentFile, {
+				active: true,
+				state: {
+					mode: "source"
+				}
+			});
+			await this.app.workspace.revealLeaf(leaf);
+
+			const view = leaf.view instanceof MarkdownView ? leaf.view : null;
+			const editor = view?.editor as EditorLike | undefined;
+			if (!editor) {
+				new Notice("Opened the note, but could not access the editor for zooming.");
+				return;
+			}
+
+			const linePosition = { line: section.startLine, ch: 0 };
+			editor.setCursor(linePosition);
+			editor.scrollIntoView({ from: linePosition, to: linePosition }, true);
+
+			const zoomPlugin = window.ObsidianZoomPlugin;
+			if (!zoomPlugin) {
+				new Notice("Opened the note in a new window. Zoom plugin is not available.");
+				return;
+			}
+
+			zoomPlugin.zoomIn(editor, section.startLine);
+		} catch (error) {
+			console.error("Arkidian: failed to open section in popout", error);
+			new Notice("Could not open this section in a new editor window.");
+		}
 	}
 
 	private getMetaPath(file: TFile) {
@@ -1042,5 +1105,12 @@ function isTypingTarget(target: EventTarget | null) {
 			target.tagName === "INPUT" ||
 			target.tagName === "TEXTAREA" ||
 			target.tagName === "SELECT")
+	);
+}
+
+function shouldIgnoreCardActivation(target: EventTarget | null) {
+	return (
+		target instanceof HTMLElement &&
+		(Boolean(target.closest("a")) || isTypingTarget(target))
 	);
 }

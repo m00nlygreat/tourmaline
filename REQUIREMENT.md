@@ -20,6 +20,8 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Current MVP uses preview-first cards on the canvas.
 - Direct editing inside cards is a later-stage feature.
 - Changes in the source `.md` document must resync the canvas view.
+- Double-clicking a section card opens the source note in a separate Obsidian window focused on that section.
+- If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
 
 ## Canvas Behavior
 
@@ -68,5 +70,6 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Render orphan blocks as free canvas objects.
 - Support markdown preview in cards.
 - Use Obsidian Markdown preview rendering consistently for both section cards and orphan elements.
+- Support double-click handoff from a section card to the native Obsidian editor in a popout window.
 - Persist canvas layout in `<filename>.meta.json`.
 - Resync canvas state when the Markdown source changes.
