@@ -65,6 +65,7 @@ type OrphanNode = {
 	startLine: number;
 	endLine: number;
 	scopeId: string;
+	childScopeId?: string;
 };
 
 type ParsedScope = {
@@ -845,6 +846,7 @@ class ArkidianView extends ItemView {
 
 	private async renderOrphan(orphan: OrphanNode, state: CanvasItemState) {
 		const item = this.stageEl.createDiv({ cls: "arkidian-orphan" });
+		item.toggleClass("is-drillable", Boolean(orphan.childScopeId));
 		applyItemFrame(item, state);
 
 		const preview = item.createDiv({ cls: "arkidian-preview" });
@@ -857,6 +859,10 @@ class ArkidianView extends ItemView {
 			}
 			event.preventDefault();
 			event.stopPropagation();
+			if ((event.metaKey || event.ctrlKey) && orphan.childScopeId) {
+				void this.enterScope(orphan.childScopeId);
+				return;
+			}
 			void this.openSourceInPopout(orphan.startLine);
 		});
 
@@ -1199,7 +1205,14 @@ function buildScope(
 
 	if (minDepth === null) {
 		scopeOrphans.push(
-			...buildShellLessNodes(nodes, scopeId, markdown, lines, parentPath)
+			...buildShellLessNodes(
+				nodes,
+				scopeId,
+				markdown,
+				lines,
+				parentPath,
+				scopes
+			)
 		);
 	} else {
 		const shellHeadings = headings.filter(({ node }) => node.depth === minDepth);
@@ -1210,7 +1223,8 @@ function buildScope(
 				scopeId,
 				markdown,
 				lines,
-				parentPath
+				parentPath,
+				scopes
 			)
 		);
 
@@ -1288,7 +1302,8 @@ function buildShellLessNodes(
 	scopeId: string,
 	markdown: string,
 	lines: string[],
-	parentPath: string[]
+	parentPath: string[],
+	scopes: Record<string, ParsedScope>
 ) {
 	if (!nodes.length) {
 		return [];
@@ -1326,7 +1341,22 @@ function buildShellLessNodes(
 	groups.forEach(({ node, index }, groupIndex) => {
 		const nextIndex = groups[groupIndex + 1]?.index ?? nodes.length;
 		const groupNodes = nodes.slice(index, nextIndex);
-		const label = [...parentPath, toString(node).trim()].join(" > ") || `${groupIndex}`;
+		const bodyNodes = groupNodes.slice(1);
+		const headingTitle = toString(node).trim();
+		const label = [...parentPath, headingTitle].join(" > ") || `${groupIndex}`;
+		const childScopeId = `scope:${scopeId}:orphan:${label}`;
+
+		buildScope(
+			bodyNodes,
+			childScopeId,
+			headingTitle,
+			[...parentPath, headingTitle],
+			scopes,
+			markdown,
+			lines,
+			node
+		);
+
 		orphans.push({
 			id: `orphan:${scopeId}:${label}`,
 			content: groupNodes
@@ -1334,7 +1364,8 @@ function buildShellLessNodes(
 				.join("\n\n"),
 			startLine: getNodeStartLine(groupNodes[0]),
 			endLine: getNodeEndLine(groupNodes[groupNodes.length - 1]),
-			scopeId
+			scopeId,
+			childScopeId
 		});
 	});
 

@@ -20,6 +20,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Changes in the source `.md` document must resync the canvas view.
 - Double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
 - Ctrl/Cmd-double-clicking a Shell enters that Shell's child canvas scope.
+- Ctrl/Cmd-double-clicking an orphan that contains its own heading hierarchy enters that orphan's child canvas scope.
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
 - Double-clicking an orphan opens the current level's source note in a separate Obsidian window focused on that orphan block.
 
@@ -63,7 +64,9 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 ## Canvas Levels
 
 - Any Shell can be entered as a deeper canvas scope.
+- Any Shell-less container that carries its own heading hierarchy can also be entered as a deeper canvas scope.
 - Entering a Shell expands that Shell's body as a new canvas.
+- Entering a Shell-less container expands that container's internal heading hierarchy as a new canvas.
 - Every entered canvas scope also renders the Shell heading that opened that scope as an orphan-style canvas object.
 - The same rules repeat inside every scope:
   - find that scope's highest-level headings
