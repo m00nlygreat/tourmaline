@@ -120,7 +120,9 @@ class ArkidianView extends ItemView {
 	private plugin: ArkidianPlugin;
 	private currentFile: TFile | null = null;
 	private canvasEl!: HTMLDivElement;
+	private scrollEl!: HTMLDivElement;
 	private gridCanvasEl!: HTMLCanvasElement;
+	private stageViewportEl!: HTMLDivElement;
 	private stageEl!: HTMLDivElement;
 	private zoom = 1;
 	private saveTimers = new Map<string, number>();
@@ -154,6 +156,7 @@ class ArkidianView extends ItemView {
 		const toolbar = this.containerEl.createDiv({ cls: "arkidian-toolbar" });
 		const refreshButton = toolbar.createEl("button", { text: "Refresh" });
 		refreshButton.addEventListener("click", () => {
+			this.fittedFilePath = null;
 			void this.renderCurrentFile();
 		});
 
@@ -172,15 +175,19 @@ class ArkidianView extends ItemView {
 		});
 
 		this.canvasEl = this.containerEl.createDiv({ cls: "arkidian-canvas" });
+		this.scrollEl = this.canvasEl.createDiv({ cls: "arkidian-scroll" });
 		this.gridCanvasEl = this.canvasEl.createEl("canvas", {
 			cls: "arkidian-grid-layer"
 		});
-		this.stageEl = this.canvasEl.createDiv({ cls: "arkidian-stage" });
+		this.stageViewportEl = this.scrollEl.createDiv({
+			cls: "arkidian-stage-viewport"
+		});
+		this.stageEl = this.stageViewportEl.createDiv({ cls: "arkidian-stage" });
 		this.syncStageZoom();
-		this.canvasEl.addEventListener("wheel", (event) => {
+		this.scrollEl.addEventListener("wheel", (event) => {
 			this.handleCanvasWheel(event);
 		});
-		this.canvasEl.addEventListener("scroll", () => {
+		this.scrollEl.addEventListener("scroll", () => {
 			this.scheduleGridRender();
 		});
 		this.resizeObserver = new ResizeObserver(() => {
@@ -193,7 +200,7 @@ class ArkidianView extends ItemView {
 					event.preventDefault();
 				}
 				this.isSpacePressed = true;
-				this.canvasEl.addClass("is-space-panning");
+				this.scrollEl.addClass("is-space-panning");
 			}
 		});
 		this.registerDomEvent(window, "keyup", (event: KeyboardEvent) => {
@@ -202,12 +209,12 @@ class ArkidianView extends ItemView {
 					event.preventDefault();
 				}
 				this.isSpacePressed = false;
-				this.canvasEl.removeClass("is-space-panning");
+				this.scrollEl.removeClass("is-space-panning");
 			}
 		});
 		this.registerDomEvent(window, "blur", () => {
 			this.isSpacePressed = false;
-			this.canvasEl.removeClass("is-space-panning");
+			this.scrollEl.removeClass("is-space-panning");
 		});
 		this.enableCanvasPanning();
 
@@ -327,18 +334,18 @@ class ArkidianView extends ItemView {
 				return;
 			}
 
-			this.canvasEl.scrollLeft = originScrollLeft - (event.clientX - startX);
-			this.canvasEl.scrollTop = originScrollTop - (event.clientY - startY);
+			this.scrollEl.scrollLeft = originScrollLeft - (event.clientX - startX);
+			this.scrollEl.scrollTop = originScrollTop - (event.clientY - startY);
 		};
 
 		const onPointerUp = () => {
 			isPanning = false;
-			this.canvasEl.removeClass("is-panning");
+			this.scrollEl.removeClass("is-panning");
 			window.removeEventListener("pointermove", onPointerMove);
 			window.removeEventListener("pointerup", onPointerUp);
 		};
 
-		this.canvasEl.addEventListener("pointerdown", (event) => {
+		this.scrollEl.addEventListener("pointerdown", (event) => {
 			if (!this.isSpacePressed || event.button !== 0) {
 				return;
 			}
@@ -347,9 +354,9 @@ class ArkidianView extends ItemView {
 			isPanning = true;
 			startX = event.clientX;
 			startY = event.clientY;
-			originScrollLeft = this.canvasEl.scrollLeft;
-			originScrollTop = this.canvasEl.scrollTop;
-			this.canvasEl.addClass("is-panning");
+			originScrollLeft = this.scrollEl.scrollLeft;
+			originScrollTop = this.scrollEl.scrollTop;
+			this.scrollEl.addClass("is-panning");
 			window.addEventListener("pointermove", onPointerMove);
 			window.addEventListener("pointerup", onPointerUp);
 		});
@@ -364,21 +371,20 @@ class ArkidianView extends ItemView {
 			return;
 		}
 
-		const rect = this.canvasEl.getBoundingClientRect();
+		const rect = this.scrollEl.getBoundingClientRect();
 		const pointerX = event.clientX - rect.left;
 		const pointerY = event.clientY - rect.top;
-		const worldX = (this.canvasEl.scrollLeft + pointerX) / this.zoom;
-		const worldY = (this.canvasEl.scrollTop + pointerY) / this.zoom;
+		const stagePoint = this.getStagePointFromViewport(pointerX, pointerY);
 
 		this.zoom = nextZoom;
 		this.syncStageZoom();
-
-		this.canvasEl.scrollLeft = worldX * this.zoom - pointerX;
-		this.canvasEl.scrollTop = worldY * this.zoom - pointerY;
+		this.anchorViewportOnStagePoint(stagePoint.x, stagePoint.y, pointerX, pointerY);
 		this.queueZoomSave();
 	}
 
 	private syncStageZoom() {
+		this.stageViewportEl.style.width = `${STAGE_WIDTH * this.zoom}px`;
+		this.stageViewportEl.style.height = `${STAGE_HEIGHT * this.zoom}px`;
 		this.stageEl.style.transform = `scale(${this.zoom})`;
 		this.scheduleGridRender();
 	}
@@ -388,7 +394,7 @@ class ArkidianView extends ItemView {
 			return;
 		}
 
-		window.requestAnimationFrame(() => {
+		this.runWhenCanvasReady(() => {
 			this.zoom = 1;
 			this.syncStageZoom();
 			this.centerOnWorldPoint(0, 0);
@@ -404,10 +410,10 @@ class ArkidianView extends ItemView {
 			return;
 		}
 
-		window.requestAnimationFrame(() => {
+		this.runWhenCanvasReady(() => {
 			const bounds = getItemBounds(itemStates);
-			const viewportWidth = Math.max(1, this.canvasEl.clientWidth);
-			const viewportHeight = Math.max(1, this.canvasEl.clientHeight);
+			const viewportWidth = Math.max(1, this.scrollEl.clientWidth);
+			const viewportHeight = Math.max(1, this.scrollEl.clientHeight);
 			const padding = 140;
 			const width = Math.max(bounds.maxX - bounds.minX, 1) + padding * 2;
 			const height = Math.max(bounds.maxY - bounds.minY, 1) + padding * 2;
@@ -429,14 +435,46 @@ class ArkidianView extends ItemView {
 	private centerOnWorldPoint(worldX: number, worldY: number) {
 		const stageX = STAGE_WIDTH / 2 + worldX;
 		const stageY = STAGE_HEIGHT / 2 + worldY;
-		this.canvasEl.scrollLeft = Math.max(
+		this.scrollEl.scrollLeft = Math.max(
 			0,
-			stageX * this.zoom - this.canvasEl.clientWidth / 2
+			stageX * this.zoom - this.scrollEl.clientWidth / 2
 		);
-		this.canvasEl.scrollTop = Math.max(
+		this.scrollEl.scrollTop = Math.max(
 			0,
-			stageY * this.zoom - this.canvasEl.clientHeight / 2
+			stageY * this.zoom - this.scrollEl.clientHeight / 2
 		);
+		this.scheduleGridRender();
+	}
+
+	private runWhenCanvasReady(callback: () => void, attempts = 0) {
+		window.requestAnimationFrame(() => {
+			if (
+				(this.scrollEl.clientWidth <= 1 || this.scrollEl.clientHeight <= 1) &&
+				attempts < 10
+			) {
+				this.runWhenCanvasReady(callback, attempts + 1);
+				return;
+			}
+
+			callback();
+		});
+	}
+
+	private getStagePointFromViewport(viewportX: number, viewportY: number) {
+		return {
+			x: (this.scrollEl.scrollLeft + viewportX) / this.zoom,
+			y: (this.scrollEl.scrollTop + viewportY) / this.zoom
+		};
+	}
+
+	private anchorViewportOnStagePoint(
+		stageX: number,
+		stageY: number,
+		viewportX: number,
+		viewportY: number
+	) {
+		this.scrollEl.scrollLeft = Math.max(0, stageX * this.zoom - viewportX);
+		this.scrollEl.scrollTop = Math.max(0, stageY * this.zoom - viewportY);
 		this.scheduleGridRender();
 	}
 
@@ -492,8 +530,8 @@ class ArkidianView extends ItemView {
 
 		const originX = STAGE_WIDTH / 2;
 		const originY = STAGE_HEIGHT / 2;
-		const screenOriginX = originX * this.zoom - this.canvasEl.scrollLeft;
-		const screenOriginY = originY * this.zoom - this.canvasEl.scrollTop;
+		const screenOriginX = originX * this.zoom - this.scrollEl.scrollLeft;
+		const screenOriginY = originY * this.zoom - this.scrollEl.scrollTop;
 		const startX =
 			mod(screenOriginX, spacing) - (screenOriginX < 0 ? 0 : spacing);
 		const startY =

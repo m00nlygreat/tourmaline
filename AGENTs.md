@@ -4,6 +4,7 @@
 
 - When project planning or requirements change, update `REQUIREMENT.md` in the same task.
 - Keep `REQUIREMENT.md` limited to product requirements only. Development workflow, build, deploy, and agent operating instructions belong in `AGENTs.md`.
+- Record short implementation lessons and debugging takeaways in `HISTORY.md`; keep entries brief and focused on root cause plus fix direction.
 - After code changes, run the build and deploy the plugin artifacts to `D:\vault\.obsidian\plugins\arkidian` so the loaded Obsidian plugin stays up to date.
 
 ## Do

@@ -27,16 +27,23 @@
 .arkidian-canvas {
   position: relative;
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   --arkidian-grid-dot-color: color-mix(in srgb, var(--text-muted) 32%, transparent);
   background-color: color-mix(in srgb, var(--background-primary) 94%, black 6%);
   cursor: default;
 }
 
+.arkidian-scroll {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
 .arkidian-grid-layer {
-  position: sticky;
-  left: 0;
-  top: 0;
+  position: absolute;
+  inset: 0;
   z-index: 0;
   display: block;
   width: 100%;
@@ -44,20 +51,29 @@
   pointer-events: none;
 }
 
-.arkidian-canvas.is-space-panning {
+.arkidian-scroll.is-space-panning {
   cursor: grab;
 }
 
-.arkidian-canvas.is-panning {
+.arkidian-scroll.is-panning {
   cursor: grabbing;
 }
 
 .arkidian-stage {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
   z-index: 1;
   width: 14000px;
   height: 9000px;
   transform-origin: top left;
+}
+
+.arkidian-stage-viewport {
+  position: relative;
+  z-index: 1;
+  width: 14000px;
+  height: 9000px;
 }
 
 .arkidian-card,
@@ -81,10 +97,10 @@
   cursor: grab;
 }
 
-.arkidian-canvas.is-space-panning .arkidian-card,
-.arkidian-canvas.is-space-panning .arkidian-orphan,
-.arkidian-canvas.is-panning .arkidian-card,
-.arkidian-canvas.is-panning .arkidian-orphan {
+.arkidian-scroll.is-space-panning .arkidian-card,
+.arkidian-scroll.is-space-panning .arkidian-orphan,
+.arkidian-scroll.is-panning .arkidian-card,
+.arkidian-scroll.is-panning .arkidian-orphan {
   cursor: inherit;
 }
 
