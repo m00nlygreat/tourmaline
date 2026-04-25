@@ -353,7 +353,9 @@ class ArkidianView extends ItemView {
 		};
 
 		this.scrollEl.addEventListener("pointerdown", (event) => {
-			if (!this.isSpacePressed || event.button !== 0) {
+			const isSpaceDrag = this.isSpacePressed && event.button === 0;
+			const isMiddleDrag = event.button === 1;
+			if (!isSpaceDrag && !isMiddleDrag) {
 				return;
 			}
 
@@ -366,6 +368,11 @@ class ArkidianView extends ItemView {
 			this.scrollEl.addClass("is-panning");
 			window.addEventListener("pointermove", onPointerMove);
 			window.addEventListener("pointerup", onPointerUp);
+		});
+		this.scrollEl.addEventListener("auxclick", (event) => {
+			if (event.button === 1) {
+				event.preventDefault();
+			}
 		});
 	}
 
@@ -685,7 +692,8 @@ class ArkidianView extends ItemView {
 		applyItemFrame(item, state);
 
 		const body = item.createDiv({ cls: "arkidian-orphan-body" });
-		body.setText(orphan.content.trim());
+		const preview = body.createDiv({ cls: "arkidian-preview" });
+		void this.renderMarkdownPreview(preview, orphan.content.trim());
 
 		this.enableDragging(item, item, orphan.id, state);
 	}
@@ -795,6 +803,7 @@ class ArkidianView extends ItemView {
 
 	private async renderMarkdownPreview(container: HTMLElement, markdown: string) {
 		container.empty();
+		container.addClass("markdown-rendered", "markdown-preview-view");
 		if (!this.currentFile) {
 			return;
 		}

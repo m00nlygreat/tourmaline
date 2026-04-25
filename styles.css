@@ -137,8 +137,7 @@
 }
 
 .arkidian-orphan-body {
-  padding: 16px 14px;
-  white-space: pre-wrap;
+  min-height: 140px;
 }
 
 .arkidian-empty {

@@ -13,7 +13,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
   - the section heading
   - sibling Markdown elements belonging to that section
   - nested child headings and their content, grouped inside the same card
-- Markdown blocks that do not belong to any parent heading are treated as orphan elements and rendered as freely movable text-like canvas objects.
+- Markdown blocks that do not belong to any parent heading are treated as orphan elements and rendered as freely movable canvas objects using the same Obsidian Markdown preview renderer as section cards.
 
 ## Editing Model
 
@@ -33,6 +33,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - The canvas uses a much larger world area, approximately 10x the earlier default workspace.
 - The center of the world is `(0, 0)`, and item positions extend into negative and positive `x/y` coordinates from there.
 - Holding the space bar enables drag-to-pan navigation.
+- Middle mouse button drag also enables the same pan navigation without holding the space bar.
 - Cards and orphan elements support selection and repositioning.
 - Card width and position are user-adjustable.
 - Adjusted card width is persisted in the sibling meta file and restored on reload.
@@ -65,5 +66,6 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Render highest-level sections as cards on a canvas.
 - Render orphan blocks as free canvas objects.
 - Support markdown preview in cards.
+- Use Obsidian Markdown preview rendering consistently for both section cards and orphan elements.
 - Persist canvas layout in `<filename>.meta.json`.
 - Resync canvas state when the Markdown source changes.
