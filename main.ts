@@ -734,6 +734,9 @@ class ArkidianView extends ItemView {
 			window.addEventListener("pointermove", onPointerMove);
 			window.addEventListener("pointerup", onPointerUp);
 		});
+		target.addEventListener("dragstart", (event) => {
+			event.preventDefault();
+		});
 	}
 
 	private enableCardResizing(
@@ -814,6 +817,9 @@ class ArkidianView extends ItemView {
 			this.currentFile.path,
 			this
 		);
+		container.querySelectorAll("img").forEach((image) => {
+			image.draggable = false;
+		});
 	}
 
 	private getMetaPath(file: TFile) {

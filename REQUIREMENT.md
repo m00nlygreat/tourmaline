@@ -35,6 +35,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Holding the space bar enables drag-to-pan navigation.
 - Middle mouse button drag also enables the same pan navigation without holding the space bar.
 - Cards and orphan elements support selection and repositioning.
+- Dragging inside a card should prioritize moving the card over native image drag behavior.
 - Card width and position are user-adjustable.
 - Adjusted card width is persisted in the sibling meta file and restored on reload.
 - The canvas floor renders a simple dotted grid as a spatial reference.

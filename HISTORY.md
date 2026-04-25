@@ -8,3 +8,4 @@
 - Orphan blocks looked inconsistent because they were inserted as plain text; routing them through `MarkdownRenderer` aligned their rendering behavior with section cards and embeds.
 - Matching Obsidian preview output also required preview container classes; without `markdown-rendered` and `markdown-preview-view`, the same renderer still looked visually different under theme CSS.
 - Middle mouse drag now follows the same pan path as space-drag, and preventing default auxclick avoids the browser autoscroll behavior interfering with canvas navigation.
+- Card dragging lost priority over embedded images because browser-native dragstart still fired inside previews; preventing dragstart on cards and disabling image dragging restored reliable repositioning.
