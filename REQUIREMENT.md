@@ -24,8 +24,20 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 ## Canvas Behavior
 
 - Canvas supports zoom and pan.
+- Mouse wheel zooms the canvas in and out using the cursor position as the anchor point.
+- Opening the canvas defaults to a main workspace tab instead of a side panel leaf.
+- On first open, the viewport and zoom default to a fitted view that shows all current content within one screen while still presenting the canvas around the world origin.
+- The canvas uses a much larger world area, approximately 10x the earlier default workspace.
+- The center of the world is `(0, 0)`, and item positions extend into negative and positive `x/y` coordinates from there.
+- Holding the space bar enables drag-to-pan navigation.
 - Cards and orphan elements support selection and repositioning.
 - Card size and position are user-adjustable.
+- The canvas floor renders a simple dotted grid as a spatial reference.
+- The dotted grid is rendered on a dedicated canvas overlay layer instead of a CSS background.
+- Grid dot size remains fixed on screen while zoom only changes spacing between dots.
+- When zoomed out, the grid thins in discrete steps so dots keep a readable minimum on-screen spacing.
+- Grid alignment must stay locked to the world origin `(0, 0)` during pan, scroll, zoom, and fit operations.
+- Cards and canvas objects remain regular DOM elements; only the background grid moves to canvas rendering for performance.
 
 ## Metadata Storage
 

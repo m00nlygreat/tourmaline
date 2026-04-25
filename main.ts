@@ -13,6 +13,13 @@ const VIEW_TYPE_ARKIDIAN = "arkidian-canvas-view";
 const META_SUFFIX = ".meta.json";
 const DEFAULT_CARD_WIDTH = 380;
 const DEFAULT_CARD_HEIGHT = 320;
+const STAGE_WIDTH = 14000;
+const STAGE_HEIGHT = 9000;
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 2.5;
+const GRID_SPACING = 28;
+const GRID_DOT_RADIUS = 0.9;
+const MIN_GRID_SCREEN_SPACING = 14;
 
 type CanvasItemState = {
 	id: string;
@@ -91,9 +98,7 @@ export default class ArkidianPlugin extends Plugin {
 	}
 
 	async activateView(file?: TFile) {
-		const leaf =
-			this.app.workspace.getLeavesOfType(VIEW_TYPE_ARKIDIAN)[0] ??
-			this.app.workspace.getRightLeaf(false);
+		const leaf = this.app.workspace.getLeaf("tab");
 
 		if (!leaf) {
 			new Notice("Could not open Arkidian view.");
@@ -115,9 +120,15 @@ class ArkidianView extends ItemView {
 	private plugin: ArkidianPlugin;
 	private currentFile: TFile | null = null;
 	private canvasEl!: HTMLDivElement;
+	private gridCanvasEl!: HTMLCanvasElement;
 	private stageEl!: HTMLDivElement;
 	private zoom = 1;
 	private saveTimers = new Map<string, number>();
+	private zoomSaveTimer: number | null = null;
+	private isSpacePressed = false;
+	private fittedFilePath: string | null = null;
+	private gridRenderFrame: number | null = null;
+	private resizeObserver: ResizeObserver | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: ArkidianPlugin) {
 		super(leaf);
@@ -156,11 +167,49 @@ class ArkidianView extends ItemView {
 				return;
 			}
 			this.currentFile = file;
+			this.fittedFilePath = null;
 			await this.renderCurrentFile();
 		});
 
 		this.canvasEl = this.containerEl.createDiv({ cls: "arkidian-canvas" });
+		this.gridCanvasEl = this.canvasEl.createEl("canvas", {
+			cls: "arkidian-grid-layer"
+		});
 		this.stageEl = this.canvasEl.createDiv({ cls: "arkidian-stage" });
+		this.syncStageZoom();
+		this.canvasEl.addEventListener("wheel", (event) => {
+			this.handleCanvasWheel(event);
+		});
+		this.canvasEl.addEventListener("scroll", () => {
+			this.scheduleGridRender();
+		});
+		this.resizeObserver = new ResizeObserver(() => {
+			this.scheduleGridRender();
+		});
+		this.resizeObserver.observe(this.canvasEl);
+		this.registerDomEvent(window, "keydown", (event: KeyboardEvent) => {
+			if (event.code === "Space") {
+				if (!isTypingTarget(event.target)) {
+					event.preventDefault();
+				}
+				this.isSpacePressed = true;
+				this.canvasEl.addClass("is-space-panning");
+			}
+		});
+		this.registerDomEvent(window, "keyup", (event: KeyboardEvent) => {
+			if (event.code === "Space") {
+				if (!isTypingTarget(event.target)) {
+					event.preventDefault();
+				}
+				this.isSpacePressed = false;
+				this.canvasEl.removeClass("is-space-panning");
+			}
+		});
+		this.registerDomEvent(window, "blur", () => {
+			this.isSpacePressed = false;
+			this.canvasEl.removeClass("is-space-panning");
+		});
+		this.enableCanvasPanning();
 
 		this.registerEvent(
 			this.app.vault.on("modify", async (file) => {
@@ -172,6 +221,15 @@ class ArkidianView extends ItemView {
 
 		await this.restoreFileFromState();
 		await this.renderCurrentFile();
+	}
+
+	async onClose() {
+		if (this.gridRenderFrame !== null) {
+			window.cancelAnimationFrame(this.gridRenderFrame);
+			this.gridRenderFrame = null;
+		}
+		this.resizeObserver?.disconnect();
+		this.resizeObserver = null;
 	}
 
 	async setState(state: ArkidianViewState, result: ViewStateResult): Promise<void> {
@@ -211,23 +269,25 @@ class ArkidianView extends ItemView {
 		const source = await this.app.vault.read(this.currentFile);
 		const parsed = parseMarkdownStructure(source);
 		const meta = await this.readMeta(this.currentFile);
-		this.zoom = meta.zoom || 1;
-		this.stageEl.style.transform = `scale(${this.zoom})`;
+		const itemStates: CanvasItemState[] = [];
 
 		if (!parsed.sections.length && !parsed.orphans.length) {
 			this.renderEmptyState("This document has no visible markdown blocks yet.");
+			this.fitViewportToOriginIfNeeded();
 			return;
 		}
 
 		parsed.sections.forEach((section, index) => {
 			const fallback = this.getDefaultItemState(section.id, index, false);
 			const state = meta.items[section.id] ?? fallback;
+			itemStates.push(state);
 			this.renderSectionCard(section, state);
 		});
 
 		parsed.orphans.forEach((orphan, index) => {
 			const fallback = this.getDefaultItemState(orphan.id, index, true);
 			const state = meta.items[orphan.id] ?? fallback;
+			itemStates.push(state);
 			this.renderOrphan(orphan, state);
 		});
 
@@ -246,11 +306,219 @@ class ArkidianView extends ItemView {
 				)
 			}
 		});
+
+		this.fitViewportToItemsIfNeeded(itemStates, meta.zoom || 1);
 	}
 
 	private renderEmptyState(message: string) {
 		const empty = this.stageEl.createDiv({ cls: "arkidian-empty" });
 		empty.setText(message);
+	}
+
+	private enableCanvasPanning() {
+		let startX = 0;
+		let startY = 0;
+		let originScrollLeft = 0;
+		let originScrollTop = 0;
+		let isPanning = false;
+
+		const onPointerMove = (event: PointerEvent) => {
+			if (!isPanning) {
+				return;
+			}
+
+			this.canvasEl.scrollLeft = originScrollLeft - (event.clientX - startX);
+			this.canvasEl.scrollTop = originScrollTop - (event.clientY - startY);
+		};
+
+		const onPointerUp = () => {
+			isPanning = false;
+			this.canvasEl.removeClass("is-panning");
+			window.removeEventListener("pointermove", onPointerMove);
+			window.removeEventListener("pointerup", onPointerUp);
+		};
+
+		this.canvasEl.addEventListener("pointerdown", (event) => {
+			if (!this.isSpacePressed || event.button !== 0) {
+				return;
+			}
+
+			event.preventDefault();
+			isPanning = true;
+			startX = event.clientX;
+			startY = event.clientY;
+			originScrollLeft = this.canvasEl.scrollLeft;
+			originScrollTop = this.canvasEl.scrollTop;
+			this.canvasEl.addClass("is-panning");
+			window.addEventListener("pointermove", onPointerMove);
+			window.addEventListener("pointerup", onPointerUp);
+		});
+	}
+
+	private handleCanvasWheel(event: WheelEvent) {
+		event.preventDefault();
+
+		const zoomDelta = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+		const nextZoom = clamp(this.zoom * zoomDelta, MIN_ZOOM, MAX_ZOOM);
+		if (nextZoom === this.zoom) {
+			return;
+		}
+
+		const rect = this.canvasEl.getBoundingClientRect();
+		const pointerX = event.clientX - rect.left;
+		const pointerY = event.clientY - rect.top;
+		const worldX = (this.canvasEl.scrollLeft + pointerX) / this.zoom;
+		const worldY = (this.canvasEl.scrollTop + pointerY) / this.zoom;
+
+		this.zoom = nextZoom;
+		this.syncStageZoom();
+
+		this.canvasEl.scrollLeft = worldX * this.zoom - pointerX;
+		this.canvasEl.scrollTop = worldY * this.zoom - pointerY;
+		this.queueZoomSave();
+	}
+
+	private syncStageZoom() {
+		this.stageEl.style.transform = `scale(${this.zoom})`;
+		this.scheduleGridRender();
+	}
+
+	private fitViewportToOriginIfNeeded() {
+		if (!this.currentFile || this.fittedFilePath === this.currentFile.path) {
+			return;
+		}
+
+		window.requestAnimationFrame(() => {
+			this.zoom = 1;
+			this.syncStageZoom();
+			this.centerOnWorldPoint(0, 0);
+			this.fittedFilePath = this.currentFile?.path ?? null;
+		});
+	}
+
+	private fitViewportToItemsIfNeeded(
+		itemStates: CanvasItemState[],
+		fallbackZoom: number
+	) {
+		if (!this.currentFile || this.fittedFilePath === this.currentFile.path) {
+			return;
+		}
+
+		window.requestAnimationFrame(() => {
+			const bounds = getItemBounds(itemStates);
+			const viewportWidth = Math.max(1, this.canvasEl.clientWidth);
+			const viewportHeight = Math.max(1, this.canvasEl.clientHeight);
+			const padding = 140;
+			const width = Math.max(bounds.maxX - bounds.minX, 1) + padding * 2;
+			const height = Math.max(bounds.maxY - bounds.minY, 1) + padding * 2;
+			const fitZoom = clamp(
+				Math.min(viewportWidth / width, viewportHeight / height),
+				MIN_ZOOM,
+				MAX_ZOOM
+			);
+
+			this.zoom = Number.isFinite(fitZoom)
+				? fitZoom
+				: clamp(fallbackZoom, MIN_ZOOM, MAX_ZOOM);
+			this.syncStageZoom();
+			this.centerOnWorldPoint(bounds.centerX, bounds.centerY);
+			this.fittedFilePath = this.currentFile?.path ?? null;
+		});
+	}
+
+	private centerOnWorldPoint(worldX: number, worldY: number) {
+		const stageX = STAGE_WIDTH / 2 + worldX;
+		const stageY = STAGE_HEIGHT / 2 + worldY;
+		this.canvasEl.scrollLeft = Math.max(
+			0,
+			stageX * this.zoom - this.canvasEl.clientWidth / 2
+		);
+		this.canvasEl.scrollTop = Math.max(
+			0,
+			stageY * this.zoom - this.canvasEl.clientHeight / 2
+		);
+		this.scheduleGridRender();
+	}
+
+	private scheduleGridRender() {
+		if (!this.gridCanvasEl || this.gridRenderFrame !== null) {
+			return;
+		}
+
+		this.gridRenderFrame = window.requestAnimationFrame(() => {
+			this.gridRenderFrame = null;
+			this.renderGrid();
+		});
+	}
+
+	private renderGrid() {
+		const canvas = this.gridCanvasEl;
+		const width = Math.max(1, Math.floor(this.canvasEl.clientWidth));
+		const height = Math.max(1, Math.floor(this.canvasEl.clientHeight));
+		const dpr = window.devicePixelRatio || 1;
+		const backingWidth = Math.max(1, Math.floor(width * dpr));
+		const backingHeight = Math.max(1, Math.floor(height * dpr));
+
+		if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+			canvas.width = backingWidth;
+			canvas.height = backingHeight;
+		}
+
+		canvas.style.width = `${width}px`;
+		canvas.style.height = `${height}px`;
+
+		const context = canvas.getContext("2d");
+		if (!context) {
+			return;
+		}
+
+		context.setTransform(1, 0, 0, 1, 0, 0);
+		context.clearRect(0, 0, backingWidth, backingHeight);
+		context.scale(dpr, dpr);
+
+		const dotColor = getComputedStyle(this.canvasEl)
+			.getPropertyValue("--arkidian-grid-dot-color")
+			.trim() || "rgba(128, 128, 128, 0.32)";
+		const baseSpacing = GRID_SPACING * this.zoom;
+		const spacingMultiplier = Math.max(
+			1,
+			2 ** Math.ceil(Math.log2(MIN_GRID_SCREEN_SPACING / Math.max(baseSpacing, 1)))
+		);
+		const spacing = baseSpacing * spacingMultiplier;
+
+		if (!Number.isFinite(spacing) || spacing < 6) {
+			return;
+		}
+
+		const originX = STAGE_WIDTH / 2;
+		const originY = STAGE_HEIGHT / 2;
+		const screenOriginX = originX * this.zoom - this.canvasEl.scrollLeft;
+		const screenOriginY = originY * this.zoom - this.canvasEl.scrollTop;
+		const startX =
+			mod(screenOriginX, spacing) - (screenOriginX < 0 ? 0 : spacing);
+		const startY =
+			mod(screenOriginY, spacing) - (screenOriginY < 0 ? 0 : spacing);
+
+		context.fillStyle = dotColor;
+
+		for (let y = startY; y <= height + spacing; y += spacing) {
+			for (let x = startX; x <= width + spacing; x += spacing) {
+				context.beginPath();
+				context.arc(x, y, GRID_DOT_RADIUS, 0, Math.PI * 2);
+				context.fill();
+			}
+		}
+	}
+
+	private queueZoomSave() {
+		if (this.zoomSaveTimer !== null) {
+			window.clearTimeout(this.zoomSaveTimer);
+		}
+
+		this.zoomSaveTimer = window.setTimeout(() => {
+			void this.persistZoomState();
+			this.zoomSaveTimer = null;
+		}, 150);
 	}
 
 	private renderSectionCard(section: SectionNode, state: CanvasItemState) {
@@ -300,6 +568,9 @@ class ArkidianView extends ItemView {
 		};
 
 		handle.addEventListener("pointerdown", (event) => {
+			if (this.isSpacePressed || event.button !== 0) {
+				return;
+			}
 			startX = event.clientX;
 			startY = event.clientY;
 			originX = state.x;
@@ -408,15 +679,33 @@ class ArkidianView extends ItemView {
 		await this.writeMeta(meta);
 	}
 
+	private async persistZoomState() {
+		if (!this.currentFile) {
+			return;
+		}
+
+		const meta = await this.readMeta(this.currentFile);
+		meta.zoom = this.zoom;
+		await this.writeMeta(meta);
+	}
+
 	private getDefaultItemState(
 		id: string,
 		index: number,
 		isOrphan: boolean
 	): CanvasItemState {
+		const cardSpacingX = 460;
+		const cardSpacingY = 380;
+		const orphanSpacingY = 190;
+		const column = index % 3;
+		const row = Math.floor(index / 3);
+
 		return {
 			id,
-			x: isOrphan ? 40 : 80 + (index % 3) * 420,
-			y: isOrphan ? 80 + index * 180 : 60 + Math.floor(index / 3) * 360,
+			x: isOrphan ? -DEFAULT_CARD_WIDTH - 220 : (column - 1) * cardSpacingX,
+			y: isOrphan
+				? -DEFAULT_CARD_HEIGHT / 2 + index * orphanSpacingY
+				: (row - 1) * cardSpacingY,
 			width: DEFAULT_CARD_WIDTH,
 			height: isOrphan ? 140 : DEFAULT_CARD_HEIGHT
 		};
@@ -511,8 +800,49 @@ function collectOrphans(lines: string[], start: number, end: number): OrphanNode
 }
 
 function applyItemFrame(element: HTMLElement, state: CanvasItemState) {
-	element.style.left = `${state.x}px`;
-	element.style.top = `${state.y}px`;
+	element.style.left = `${STAGE_WIDTH / 2 + state.x}px`;
+	element.style.top = `${STAGE_HEIGHT / 2 + state.y}px`;
 	element.style.width = `${state.width}px`;
 	element.style.minHeight = `${state.height}px`;
+}
+
+function clamp(value: number, min: number, max: number) {
+	return Math.min(max, Math.max(min, value));
+}
+
+function mod(value: number, divisor: number) {
+	return ((value % divisor) + divisor) % divisor;
+}
+
+function getItemBounds(itemStates: CanvasItemState[]) {
+	let minX = 0;
+	let minY = 0;
+	let maxX = 0;
+	let maxY = 0;
+
+	for (const item of itemStates) {
+		minX = Math.min(minX, item.x);
+		minY = Math.min(minY, item.y);
+		maxX = Math.max(maxX, item.x + item.width);
+		maxY = Math.max(maxY, item.y + item.height);
+	}
+
+	return {
+		minX,
+		minY,
+		maxX,
+		maxY,
+		centerX: (minX + maxX) / 2,
+		centerY: (minY + maxY) / 2
+	};
+}
+
+function isTypingTarget(target: EventTarget | null) {
+	return (
+		target instanceof HTMLElement &&
+		(target.isContentEditable ||
+			target.tagName === "INPUT" ||
+			target.tagName === "TEXTAREA" ||
+			target.tagName === "SELECT")
+	);
 }
