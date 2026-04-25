@@ -15,6 +15,8 @@ const DEFAULT_CARD_WIDTH = 380;
 const DEFAULT_CARD_HEIGHT = 320;
 const STAGE_WIDTH = 14000;
 const STAGE_HEIGHT = 9000;
+const MIN_CARD_WIDTH = 240;
+const MAX_CARD_WIDTH = 1200;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 2.5;
 const MIN_SCROLLABLE_OVERFLOW = 2;
@@ -675,6 +677,7 @@ class ArkidianView extends ItemView {
 		void this.renderMarkdownPreview(preview, section.content);
 
 		this.enableDragging(card, card, section.id, state);
+		this.enableCardResizing(card, section.id, state);
 	}
 
 	private renderOrphan(orphan: OrphanNode, state: CanvasItemState) {
@@ -720,6 +723,41 @@ class ArkidianView extends ItemView {
 			startY = event.clientY;
 			originX = state.x;
 			originY = state.y;
+			window.addEventListener("pointermove", onPointerMove);
+			window.addEventListener("pointerup", onPointerUp);
+		});
+	}
+
+	private enableCardResizing(
+		card: HTMLElement,
+		itemId: string,
+		state: CanvasItemState
+	) {
+		const resizeHandle = card.createDiv({ cls: "arkidian-card-resize-handle" });
+		let startX = 0;
+		let originWidth = state.width;
+
+		const onPointerMove = (event: PointerEvent) => {
+			const deltaX = (event.clientX - startX) / this.zoom;
+			state.width = clamp(originWidth + deltaX, MIN_CARD_WIDTH, MAX_CARD_WIDTH);
+			applyItemFrame(card, state);
+		};
+
+		const onPointerUp = () => {
+			window.removeEventListener("pointermove", onPointerMove);
+			window.removeEventListener("pointerup", onPointerUp);
+			void this.persistItemState(itemId, state);
+		};
+
+		resizeHandle.addEventListener("pointerdown", (event) => {
+			if (this.isSpacePressed || event.button !== 0) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			startX = event.clientX;
+			originWidth = state.width;
 			window.addEventListener("pointermove", onPointerMove);
 			window.addEventListener("pointerup", onPointerUp);
 		});

@@ -34,7 +34,8 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - The center of the world is `(0, 0)`, and item positions extend into negative and positive `x/y` coordinates from there.
 - Holding the space bar enables drag-to-pan navigation.
 - Cards and orphan elements support selection and repositioning.
-- Card size and position are user-adjustable.
+- Card width and position are user-adjustable.
+- Adjusted card width is persisted in the sibling meta file and restored on reload.
 - The canvas floor renders a simple dotted grid as a spatial reference.
 - The dotted grid is rendered on a dedicated canvas overlay layer instead of a CSS background.
 - Grid dot size remains fixed on screen while zoom only changes spacing between dots.
