@@ -185,6 +185,12 @@
   backdrop-filter: none;
 }
 
+.arkidian-frontmatter-card.arkidian-orphan.is-selected {
+  box-shadow:
+    0 0 0 2px var(--interactive-accent),
+    0 10px 28px rgba(0, 0, 0, 0.12);
+}
+
 .arkidian-canvas {
   position: relative;
   flex: 1;
@@ -278,6 +284,15 @@
 
 .arkidian-layer-row.is-current-scope {
   background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+}
+
+.arkidian-layer-row.is-selected {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 58%, transparent);
+}
+
+.arkidian-layer-row.is-selected:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 24%, transparent);
 }
 
 .arkidian-layer-row.is-drillable .arkidian-layer-label {
@@ -409,7 +424,7 @@
   position: absolute;
   width: 360px;
   min-height: 180px;
-  border: 2px solid color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+  border: 2px solid color-mix(in srgb, var(--background-modifier-border) 88%, transparent);
   border-radius: 18px;
   background:
     linear-gradient(
@@ -418,11 +433,30 @@
       color-mix(in srgb, var(--background-secondary) 92%, transparent)
     );
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--interactive-accent) 10%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--background-primary) 65%, transparent),
     0 18px 44px rgba(0, 0, 0, 0.16);
   overflow: hidden;
   backdrop-filter: blur(8px);
   cursor: grab;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.arkidian-card:hover,
+.arkidian-orphan:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 72%, white 8%);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--interactive-accent) 18%, transparent),
+    0 18px 44px rgba(0, 0, 0, 0.18);
+}
+
+.arkidian-card.is-selected,
+.arkidian-orphan.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--interactive-accent) 24%, transparent),
+    0 18px 44px rgba(0, 0, 0, 0.18);
 }
 
 .arkidian-scroll.is-space-panning .arkidian-card,
@@ -446,6 +480,12 @@
   backdrop-filter: none;
 }
 
+.arkidian-orphan.is-selected {
+  box-shadow:
+    0 0 0 2px var(--interactive-accent),
+    0 10px 28px rgba(0, 0, 0, 0.14);
+}
+
 .arkidian-card-resize-handle {
   position: absolute;
   top: 0;
@@ -454,6 +494,15 @@
   height: 100%;
   cursor: ew-resize;
   z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.arkidian-card.is-selected .arkidian-card-resize-handle,
+.arkidian-orphan.is-selected .arkidian-card-resize-handle {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .arkidian-card-resize-handle::after {
@@ -490,7 +539,7 @@
   background: color-mix(in srgb, var(--text-muted) 55%, transparent);
 }
 
-.arkidian-orphan:hover .arkidian-card-resize-handle::after {
+.arkidian-orphan.is-selected .arkidian-card-resize-handle::after {
   background: color-mix(in srgb, var(--interactive-accent) 70%, var(--text-muted));
 }
 

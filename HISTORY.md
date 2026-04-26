@@ -34,3 +34,6 @@
 - Layer panel navigation was too eager when single-click entered scopes immediately; making single-click expand only and reserving double-click / modifier-double-click for the same open-versus-enter split as the canvas keeps the mental model consistent.
 - Layer trees became noisy when entered scopes repeated their opening heading as both a Shell row and a child element; filtering scope-heading orphans out of the panel keeps the hierarchy readable without changing the canvas content.
 - Scope entry feels lighter as a modifier-click than a modifier-double-click; moving all enter actions to Ctrl/Cmd-click keeps drill-down fast while leaving plain double-click dedicated to opening source.
+- Resize affordances were visually noisy when always on; tying selection highlight and handle visibility to an explicit selected canvas item keeps the stage calmer without changing drag or resize behavior.
+- Canvas state reads clearer when hover uses a softer preview outline while explicit selection takes Obsidian's accent color directly.
+- Selection feels more trustworthy when the layer panel mirrors the current canvas item instead of keeping canvas and tree focus separate.

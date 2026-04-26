@@ -231,6 +231,8 @@ class ArkidianView extends ItemView {
 	private gridRenderFrame: number | null = null;
 	private resizeObserver: ResizeObserver | null = null;
 	private expandedLayerIds = new Set<string>();
+	private selectedItemId: string | null = null;
+	private selectedItemEl: HTMLElement | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: ArkidianPlugin) {
 		super(leaf);
@@ -410,6 +412,7 @@ class ArkidianView extends ItemView {
 	}
 
 	private async renderCurrentFile() {
+		this.clearSelectedItem();
 		this.stageEl.empty();
 		this.renderToolbar();
 
@@ -681,6 +684,7 @@ class ArkidianView extends ItemView {
 			row.style.setProperty("--arkidian-layer-depth", `${depth}`);
 			row.toggleClass("is-current-scope", node.targetScopeId === this.currentScopeId);
 			row.toggleClass("is-drillable", Boolean(node.targetScopeId));
+			row.toggleClass("is-selected", node.id === this.selectedItemId);
 
 			const isExpanded =
 				node.children.length > 0 && this.expandedLayerIds.has(node.id);
@@ -728,6 +732,7 @@ class ArkidianView extends ItemView {
 			}
 
 			labelButton.addEventListener("click", (event) => {
+				this.selectItemById(node.id);
 				if (event.metaKey || event.ctrlKey) {
 					if (
 						node.targetScopeId &&
@@ -890,6 +895,14 @@ class ArkidianView extends ItemView {
 		};
 
 		this.scrollEl.addEventListener("pointerdown", (event) => {
+			if (
+				event.target === this.scrollEl ||
+				event.target === this.stageViewportEl ||
+				event.target === this.stageEl
+			) {
+				this.clearSelectedItem();
+			}
+
 			const isSpaceDrag = this.isSpacePressed && event.button === 0;
 			const isMiddleDrag = event.button === 1;
 			if (!isSpaceDrag && !isMiddleDrag) {
@@ -1224,6 +1237,7 @@ class ArkidianView extends ItemView {
 
 	private async renderSectionCard(section: SectionNode, state: CanvasItemState) {
 		const card = this.stageEl.createDiv({ cls: "arkidian-card" });
+		this.enableItemSelection(card, section.id);
 		applyItemFrame(card, state);
 
 		const body = card.createDiv({ cls: "arkidian-card-body" });
@@ -1257,6 +1271,7 @@ class ArkidianView extends ItemView {
 
 	private async renderOrphan(orphan: OrphanNode, state: CanvasItemState) {
 		const item = this.stageEl.createDiv({ cls: "arkidian-orphan" });
+		this.enableItemSelection(item, orphan.id);
 		item.toggleClass("is-drillable", Boolean(orphan.childScopeId));
 		applyItemFrame(item, state);
 
@@ -1295,6 +1310,7 @@ class ArkidianView extends ItemView {
 		const card = this.stageEl.createDiv({
 			cls: "arkidian-orphan arkidian-frontmatter-card"
 		});
+		this.enableItemSelection(card, frontmatter.id);
 		applyItemFrame(card, state);
 
 		const body = card.createDiv({ cls: "arkidian-frontmatter-card-body" });
@@ -1474,6 +1490,49 @@ class ArkidianView extends ItemView {
 		applyItemFrame(card, state);
 	}
 
+	private enableItemSelection(target: HTMLElement, itemId: string) {
+		target.dataset.itemId = itemId;
+		target.addEventListener("pointerdown", (event) => {
+			if (this.isSpacePressed || event.button !== 0) {
+				return;
+			}
+			this.selectItem(itemId, target);
+		});
+	}
+
+	private selectItem(itemId: string, element: HTMLElement) {
+		if (this.selectedItemId === itemId && this.selectedItemEl === element) {
+			element.addClass("is-selected");
+			this.rerenderCurrentLayerPanel();
+			return;
+		}
+
+		this.selectedItemEl?.removeClass("is-selected");
+		this.selectedItemId = itemId;
+		this.selectedItemEl = element;
+		element.addClass("is-selected");
+		this.rerenderCurrentLayerPanel();
+	}
+
+	private selectItemById(itemId: string) {
+		const element = this.stageEl.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`);
+		if (!element) {
+			this.clearSelectedItem();
+			return;
+		}
+		this.selectItem(itemId, element);
+	}
+
+	private clearSelectedItem() {
+		if (!this.selectedItemId && !this.selectedItemEl) {
+			return;
+		}
+		this.selectedItemEl?.removeClass("is-selected");
+		this.selectedItemId = null;
+		this.selectedItemEl = null;
+		this.rerenderCurrentLayerPanel();
+	}
+
 	private enableDragging(
 		target: HTMLElement,
 		handle: HTMLElement,
@@ -1506,6 +1565,7 @@ class ArkidianView extends ItemView {
 			if (isInteractiveTarget(event.target)) {
 				return;
 			}
+			this.selectItem(itemId, target);
 			startX = event.clientX;
 			startY = event.clientY;
 			originX = state.x;
@@ -1546,6 +1606,7 @@ class ArkidianView extends ItemView {
 
 			event.preventDefault();
 			event.stopPropagation();
+			this.selectItem(itemId, card);
 			startX = event.clientX;
 			originWidth = state.width;
 			window.addEventListener("pointermove", onPointerMove);
