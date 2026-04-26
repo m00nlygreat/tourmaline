@@ -1,11 +1,13 @@
 import {
 	App,
 	getFrontMatterInfo,
+	getLinkpath,
 	ItemView,
 	MarkdownRenderer,
 	MarkdownView,
 	Notice,
 	Plugin,
+	resolveSubpath,
 	setIcon,
 	TFile,
 	ViewStateResult,
@@ -127,11 +129,40 @@ type LayerTreeNode = {
 	id: string;
 	label: string;
 	icon: string;
-	kind: "frontmatter" | "section" | "orphan";
+	kind: "frontmatter" | "section" | "orphan" | "embed";
 	startLine: number;
 	targetScopeId?: string;
+	targetFilePath?: string;
 	openLine?: number;
 	children: LayerTreeNode[];
+};
+
+type EmbedNode = {
+	id: string;
+	parentId: string;
+	label: string;
+	link: string;
+	original: string;
+	startLine: number;
+	endLine: number;
+	sourceScopeId: string;
+	targetFilePath: string | null;
+	targetScopeId: string | null;
+	targetLine: number | null;
+};
+
+type RenderableItemContext = {
+	renderable: RenderableScopeItem;
+	embeds: EmbedNode[];
+};
+
+type SourceTrailEntry = {
+	label: string;
+	sourceFilePath: string;
+	sourceScopeId: string;
+	sourceLine: number;
+	targetFilePath: string;
+	targetScopeId: string;
 };
 
 type ZoomPluginApi = {
@@ -233,6 +264,8 @@ class ArkidianView extends ItemView {
 	private expandedLayerIds = new Set<string>();
 	private selectedItemId: string | null = null;
 	private selectedItemEl: HTMLElement | null = null;
+	private embedMap = new Map<string, EmbedNode[]>();
+	private sourceTrail: SourceTrailEntry[] = [];
 
 	constructor(leaf: WorkspaceLeaf, plugin: ArkidianPlugin) {
 		super(leaf);
@@ -265,16 +298,7 @@ class ArkidianView extends ItemView {
 			text: "Back"
 		});
 		this.backButtonEl.addEventListener("click", () => {
-			if (!this.parsedDocument) {
-				return;
-			}
-			const parentScopeId = getParentScopeId(this.currentScopeId);
-			if (!parentScopeId || !this.parsedDocument.scopes[parentScopeId]) {
-				return;
-			}
-			this.currentScopeId = parentScopeId;
-			this.fittedScopeId = null;
-			void this.renderCurrentFile();
+			void this.navigateBack();
 		});
 		const refreshButton = createInteractiveControl(this.toolbarActionsEl, {
 			cls: "arkidian-toolbar-control",
@@ -299,6 +323,7 @@ class ArkidianView extends ItemView {
 			this.currentFile = file;
 			this.fittedFilePath = null;
 			this.currentScopeId = "scope:root";
+			this.sourceTrail = [];
 			this.fittedScopeId = null;
 			await this.renderCurrentFile();
 		});
@@ -437,19 +462,23 @@ class ArkidianView extends ItemView {
 			frontmatterItem,
 			layerPanelOrphans
 		);
+		this.embedMap = await this.buildEmbedMapForDocument();
+		const renderableContexts = this.buildRenderableContexts(renderableItems);
+		const layerPanelContexts = this.buildRenderableContexts(layerPanelItems);
 		const meta = await this.readMeta(this.currentFile);
 		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
 		const itemStates: CanvasItemState[] = [];
 		this.renderToolbar(scope);
-		this.renderLayerPanel(scope, layerPanelItems);
+		this.renderLayerPanel(scope, layerPanelContexts);
 
-		if (!renderableItems.length) {
+		if (!renderableContexts.length) {
 			this.renderEmptyState("This document has no visible markdown blocks yet.");
 			this.fitViewportToOriginIfNeeded();
 			return;
 		}
 
-		for (const [index, renderable] of renderableItems.entries()) {
+		for (const [index, context] of renderableContexts.entries()) {
+			const { renderable } = context;
 			const fallback = this.getDefaultItemState(
 				renderable.id,
 				index,
@@ -463,17 +492,17 @@ class ArkidianView extends ItemView {
 				continue;
 			}
 			if (renderable.kind === "section") {
-				await this.renderSectionCard(renderable.item, state);
+				await this.renderSectionCard(renderable.item, state, context.embeds);
 				continue;
 			}
-			await this.renderOrphan(renderable.item, state);
+			await this.renderOrphan(renderable.item, state, context.embeds);
 		}
 
 		meta.scopes[this.currentScopeId] = {
 			zoom: scopeMeta.zoom,
 			items: {
 				...Object.fromEntries(
-					renderableItems.map((renderable, index) => {
+					renderableContexts.map(({ renderable }, index) => {
 						const fallback = this.getDefaultItemState(
 							renderable.id,
 							index,
@@ -567,7 +596,49 @@ class ArkidianView extends ItemView {
 		});
 	}
 
-	private renderLayerPanel(scope: ParsedScope, renderableItems: RenderableScopeItem[]) {
+	private async buildEmbedMapForDocument() {
+		const embedMap = new Map<string, EmbedNode[]>();
+		if (!this.currentFile || !this.parsedDocument) {
+			return embedMap;
+		}
+
+		for (const scope of Object.values(this.parsedDocument.scopes)) {
+			const renderables = this.getRenderableItems(
+				scope,
+				this.getFrontmatterItem(scope),
+				this.getDisplayOrphans(scope)
+			);
+			for (const renderable of renderables) {
+				if (renderable.kind === "frontmatter") {
+					continue;
+				}
+				embedMap.set(
+					renderable.id,
+					await this.resolveEmbedsForRenderable(renderable)
+				);
+			}
+		}
+
+		return embedMap;
+	}
+
+	private getEmbedsForItem(itemId: string) {
+		return this.embedMap.get(itemId) ?? [];
+	}
+
+	private buildRenderableContexts(
+		renderableItems: RenderableScopeItem[]
+	): RenderableItemContext[] {
+		return renderableItems.map((renderable) => ({
+			renderable,
+			embeds: renderable.kind === "frontmatter" ? [] : this.getEmbedsForItem(renderable.id)
+		}));
+	}
+
+	private renderLayerPanel(
+		scope: ParsedScope,
+		renderableItems: RenderableItemContext[]
+	) {
 		this.layerTreeEl.empty();
 
 		const scopeHeader = this.layerTreeEl.createDiv({
@@ -582,7 +653,7 @@ class ArkidianView extends ItemView {
 			text: `${renderableItems.length} items`
 		});
 
-		const tree = this.buildLayerTree(scope.id);
+		const tree = this.buildLayerTree(renderableItems);
 		if (!tree.length) {
 			this.layerTreeEl.createDiv({
 				cls: "arkidian-layer-empty",
@@ -606,31 +677,18 @@ class ArkidianView extends ItemView {
 
 		this.renderLayerPanel(
 			scope,
-			this.getRenderableItems(
-				scope,
-				this.getFrontmatterItem(scope),
-				this.getLayerPanelOrphans(scope)
+			this.buildRenderableContexts(
+				this.getRenderableItems(
+					scope,
+					this.getFrontmatterItem(scope),
+					this.getLayerPanelOrphans(scope)
+				)
 			)
 		);
 	}
 
-	private buildLayerTree(scopeId: string): LayerTreeNode[] {
-		if (!this.parsedDocument) {
-			return [];
-		}
-
-		const scope = this.parsedDocument.scopes[scopeId];
-		if (!scope) {
-			return [];
-		}
-
-		const renderableItems = this.getRenderableItems(
-			scope,
-			this.getFrontmatterItem(scope),
-			this.getLayerPanelOrphans(scope)
-		);
-
-		return renderableItems.map((renderable) => {
+	private buildLayerTree(renderableItems: RenderableItemContext[]): LayerTreeNode[] {
+		return renderableItems.map(({ renderable, embeds }) => {
 			if (renderable.kind === "frontmatter") {
 				return {
 					id: renderable.id,
@@ -652,7 +710,10 @@ class ArkidianView extends ItemView {
 					startLine: renderable.startLine,
 					targetScopeId: renderable.item.scopeId,
 					openLine: renderable.item.startLine,
-					children: this.buildLayerTree(renderable.item.scopeId)
+					children: [
+						...embeds.map((embed) => this.createEmbedLayerNode(embed)),
+						...this.buildDescendantLayerTree(renderable.item.scopeId)
+					]
 				};
 			}
 
@@ -664,11 +725,158 @@ class ArkidianView extends ItemView {
 				startLine: renderable.startLine,
 				targetScopeId: renderable.item.childScopeId,
 				openLine: renderable.item.startLine,
-				children: renderable.item.childScopeId
-					? this.buildLayerTree(renderable.item.childScopeId)
-					: []
+				children: [
+					...embeds.map((embed) => this.createEmbedLayerNode(embed)),
+					...(renderable.item.childScopeId
+						? this.buildDescendantLayerTree(renderable.item.childScopeId)
+						: [])
+				]
 			};
 		});
+	}
+
+	private buildDescendantLayerTree(scopeId: string): LayerTreeNode[] {
+		if (!this.parsedDocument) {
+			return [];
+		}
+
+		const scope = this.parsedDocument.scopes[scopeId];
+		if (!scope) {
+			return [];
+		}
+
+		return this.buildLayerTree(
+			this.buildRenderableContexts(
+				this.getRenderableItems(scope, null, this.getLayerPanelOrphans(scope))
+			)
+		);
+	}
+
+	private createEmbedLayerNode(embed: EmbedNode): LayerTreeNode {
+		return {
+			id: embed.id,
+			label: getEmbedLayerLabel(embed),
+			icon: "picture-in-picture-2",
+			kind: "embed",
+			startLine: embed.startLine,
+			targetScopeId: embed.targetScopeId ?? undefined,
+			targetFilePath: embed.targetFilePath ?? undefined,
+			openLine: embed.targetLine ?? undefined,
+			children: []
+		};
+	}
+
+	private async resolveEmbedsForRenderable(
+		renderable: Exclude<RenderableScopeItem, { kind: "frontmatter" }>
+	): Promise<EmbedNode[]> {
+		if (!this.currentFile) {
+			return [];
+		}
+
+		const fileCache = this.app.metadataCache.getFileCache(this.currentFile);
+		const embeds = fileCache?.embeds ?? [];
+		const lineRange = {
+			start: renderable.startLine,
+			end:
+				renderable.kind === "section"
+					? renderable.item.endLine
+					: renderable.item.endLine
+		};
+		const matchingEmbeds = embeds
+			.filter((embed) => {
+				const startLine = embed.position.start.line;
+				const endLine = embed.position.end.line;
+				return startLine >= lineRange.start && endLine <= lineRange.end;
+			})
+			.sort(
+				(a, b) =>
+					a.position.start.line - b.position.start.line ||
+					a.position.start.col - b.position.start.col
+			);
+
+		const resolvedEmbeds: EmbedNode[] = [];
+		for (const [index, embed] of matchingEmbeds.entries()) {
+			const target = await this.resolveEmbedTarget(embed.link);
+			resolvedEmbeds.push({
+				id: `embed:${renderable.id}:${index}:${embed.position.start.line}`,
+				parentId: renderable.id,
+				label: embed.displayText?.trim() || embed.original.trim() || embed.link,
+				link: embed.link,
+				original: embed.original,
+				startLine: embed.position.start.line,
+				endLine: embed.position.end.line,
+				sourceScopeId:
+					renderable.kind === "section"
+						? renderable.item.scopeId
+						: renderable.item.scopeId,
+				targetFilePath: target?.file.path ?? null,
+				targetScopeId: target?.scopeId ?? null,
+				targetLine: target?.line ?? null
+			});
+		}
+
+		return resolvedEmbeds;
+	}
+
+	private async resolveEmbedTarget(link: string) {
+		if (!this.currentFile) {
+			return null;
+		}
+
+		const targetFile = this.app.metadataCache.getFirstLinkpathDest(
+			getLinkpath(link),
+			this.currentFile.path
+		);
+		if (!(targetFile instanceof TFile)) {
+			return null;
+		}
+
+		const subpath = extractLinkSubpath(link);
+		if (!subpath) {
+			return {
+				file: targetFile,
+				scopeId: "scope:root",
+				line: 0
+			};
+		}
+
+		const fileCache = this.app.metadataCache.getFileCache(targetFile);
+		const resolvedSubpath = fileCache ? resolveSubpath(fileCache, subpath) : null;
+		const targetLine = getResolvedSubpathStartLine(resolvedSubpath);
+		const parsed = await this.parseFileStructure(targetFile);
+		if (!parsed) {
+			return {
+				file: targetFile,
+				scopeId: "scope:root",
+				line: targetLine
+			};
+		}
+
+		const scopeId = this.findScopeIdForTargetLine(parsed, targetLine);
+		return {
+			file: targetFile,
+			scopeId,
+			line: targetLine
+		};
+	}
+
+	private async parseFileStructure(file: TFile) {
+		const source = await this.app.vault.read(file);
+		return parseMarkdownStructure(source);
+	}
+
+	private findScopeIdForTargetLine(parsed: ParsedDocument, line: number) {
+		const matchingSection = Object.values(parsed.scopes)
+			.flatMap((scope) => scope.sections)
+			.find((section) => section.startLine === line);
+		if (matchingSection) {
+			return matchingSection.scopeId;
+		}
+
+		const matchingScope = Object.values(parsed.scopes).find(
+			(scope) => line >= scope.startLine && line <= scope.endLine
+		);
+		return matchingScope?.id ?? parsed.rootScopeId;
 	}
 
 	private renderLayerTreeNodes(
@@ -683,7 +891,10 @@ class ArkidianView extends ItemView {
 			});
 			row.style.setProperty("--arkidian-layer-depth", `${depth}`);
 			row.toggleClass("is-current-scope", node.targetScopeId === this.currentScopeId);
-			row.toggleClass("is-drillable", Boolean(node.targetScopeId));
+			row.toggleClass(
+				"is-drillable",
+				Boolean(node.targetScopeId || node.targetFilePath)
+			);
 			row.toggleClass("is-selected", node.id === this.selectedItemId);
 
 			const isExpanded =
@@ -734,14 +945,7 @@ class ArkidianView extends ItemView {
 			labelButton.addEventListener("click", (event) => {
 				this.selectItemById(node.id);
 				if (event.metaKey || event.ctrlKey) {
-					if (
-						node.targetScopeId &&
-						this.parsedDocument?.scopes[node.targetScopeId]
-					) {
-						this.currentScopeId = node.targetScopeId;
-						this.fittedScopeId = null;
-						void this.renderCurrentFile();
-					}
+					void this.enterLayerNode(node);
 					return;
 				}
 				if (node.children.length && !isExpanded) {
@@ -753,9 +957,7 @@ class ArkidianView extends ItemView {
 			labelButton.addEventListener("dblclick", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				if (typeof node.openLine === "number") {
-					void this.openSourceInPopout(node.openLine);
-				}
+				void this.openLayerNode(node);
 			});
 
 			if (node.children.length && isExpanded) {
@@ -767,51 +969,177 @@ class ArkidianView extends ItemView {
 		}
 	}
 
-	private renderToolbar(scope?: ParsedScope) {
-		this.toolbarBreadcrumbsEl.empty();
+	private async enterLayerNode(node: LayerTreeNode) {
+		if (node.kind === "embed") {
+			const embed = this.findEmbedById(node.id);
+			if (embed) {
+				await this.enterEmbed(embed);
+			}
+			return;
+		}
 
-		const rootLabel = this.currentFile?.basename ?? "Open markdown file";
-		const rootButton = createInteractiveControl(this.toolbarBreadcrumbsEl, {
-			cls: `arkidian-breadcrumb${this.currentScopeId === "scope:root" ? " is-current" : ""}`,
-			text: rootLabel
-		});
-		setInteractiveDisabled(
-			rootButton,
-			!this.currentFile || this.currentScopeId === "scope:root"
+		if (
+			node.targetScopeId &&
+			this.parsedDocument?.scopes[node.targetScopeId]
+		) {
+			await this.enterScope(node.targetScopeId);
+		}
+	}
+
+	private async openLayerNode(node: LayerTreeNode) {
+		if (node.kind === "embed") {
+			const embed = this.findEmbedById(node.id);
+			if (embed && embed.targetFilePath && typeof embed.targetLine === "number") {
+				const targetFile = this.app.vault.getAbstractFileByPath(embed.targetFilePath);
+				if (targetFile instanceof TFile) {
+					await this.openSourceInPopout(embed.targetLine, targetFile);
+				}
+			}
+			return;
+		}
+
+		if (typeof node.openLine === "number") {
+			await this.openSourceInPopout(node.openLine);
+		}
+	}
+
+	private findEmbedById(embedId: string) {
+		for (const embeds of this.embedMap.values()) {
+			const match = embeds.find((embed) => embed.id === embedId);
+			if (match) {
+				return match;
+			}
+		}
+		return null;
+	}
+
+	private canNavigateBack() {
+		return Boolean(
+			(this.parsedDocument &&
+				getParentScopeId(this.currentScopeId) &&
+				this.parsedDocument.scopes[getParentScopeId(this.currentScopeId) ?? ""]) ||
+				this.sourceTrail.length
 		);
-		rootButton.addEventListener("click", () => {
-			if (!this.currentFile || this.currentScopeId === "scope:root") {
+	}
+
+	private async navigateBack() {
+		if (this.parsedDocument) {
+			const parentScopeId = getParentScopeId(this.currentScopeId);
+			if (parentScopeId && this.parsedDocument.scopes[parentScopeId]) {
+				this.currentScopeId = parentScopeId;
+				this.fittedScopeId = null;
+				await this.renderCurrentFile();
 				return;
 			}
-			this.currentScopeId = "scope:root";
-			this.fittedScopeId = null;
-			void this.renderCurrentFile();
+		}
+
+		const previousTrail = this.sourceTrail[this.sourceTrail.length - 1];
+		if (!previousTrail) {
+			return;
+		}
+
+		this.sourceTrail = this.sourceTrail.slice(0, -1);
+		await this.openCanvasLocation(
+			previousTrail.sourceFilePath,
+			previousTrail.sourceScopeId
+		);
+	}
+
+	private buildBreadcrumbs(scope?: ParsedScope) {
+		const breadcrumbs: Array<{
+			label: string;
+			isCurrent: boolean;
+			onClick?: () => Promise<void>;
+		}> = [];
+
+		let lastFilePath: string | null = null;
+		for (const entry of this.sourceTrail) {
+			if (entry.sourceFilePath !== lastFilePath) {
+				breadcrumbs.push({
+					label: getFileNameFromPath(entry.sourceFilePath),
+					isCurrent: false
+				});
+			}
+			lastFilePath = entry.sourceFilePath;
+			for (const segment of getScopePathSegments(entry.sourceScopeId)) {
+				breadcrumbs.push({
+					label: segment,
+					isCurrent: false
+				});
+			}
+			breadcrumbs.push({
+				label: normalizeEmbedBreadcrumbLabel(entry.label),
+				isCurrent: false
+			});
+			lastFilePath = entry.targetFilePath;
+		}
+
+		const rootLabel = this.currentFile?.basename ?? "Open markdown file";
+		breadcrumbs.push({
+			label: rootLabel,
+			isCurrent: this.currentScopeId === "scope:root" && this.sourceTrail.length === 0,
+			onClick:
+				this.currentFile && this.currentScopeId !== "scope:root"
+					? async () => {
+							this.currentScopeId = "scope:root";
+							this.fittedScopeId = null;
+							await this.renderCurrentFile();
+						}
+					: undefined
 		});
 
 		const pathSegments = getScopePathSegments(scope?.id ?? this.currentScopeId);
 		pathSegments.forEach((segment, index) => {
-			this.toolbarBreadcrumbsEl.createSpan({
-				cls: "arkidian-breadcrumb-separator",
-				text: "/"
-			});
 			const targetScopeId = `scope:${pathSegments.slice(0, index + 1).join(" > ")}`;
 			const isCurrent = targetScopeId === this.currentScopeId;
-			const crumb = createInteractiveControl(this.toolbarBreadcrumbsEl, {
-				cls: `arkidian-breadcrumb${isCurrent ? " is-current" : ""}`,
-				text: segment
-			});
-			setInteractiveDisabled(crumb, isCurrent);
-			crumb.addEventListener("click", () => {
-				if (isCurrent) {
-					return;
-				}
-				this.currentScopeId = targetScopeId;
-				this.fittedScopeId = null;
-				void this.renderCurrentFile();
+			breadcrumbs.push({
+				label: segment,
+				isCurrent,
+				onClick: isCurrent
+					? undefined
+					: async () => {
+							this.currentScopeId = targetScopeId;
+							this.fittedScopeId = null;
+							await this.renderCurrentFile();
+						}
 			});
 		});
 
-		setInteractiveDisabled(this.backButtonEl, this.currentScopeId === "scope:root");
+		if (breadcrumbs.length) {
+			breadcrumbs[breadcrumbs.length - 1].isCurrent = true;
+		}
+
+		return breadcrumbs;
+	}
+
+	private renderToolbar(scope?: ParsedScope) {
+		this.toolbarBreadcrumbsEl.empty();
+		const breadcrumbs = this.buildBreadcrumbs(scope);
+
+		breadcrumbs.forEach((breadcrumb, index) => {
+			if (index > 0) {
+				this.toolbarBreadcrumbsEl.createSpan({
+					cls: "arkidian-breadcrumb-separator",
+					text: "/"
+				});
+			}
+
+			const crumb = createInteractiveControl(this.toolbarBreadcrumbsEl, {
+				cls: `arkidian-breadcrumb${breadcrumb.isCurrent ? " is-current" : ""}`,
+				text: breadcrumb.label
+			});
+			setInteractiveDisabled(crumb, !breadcrumb.onClick || breadcrumb.isCurrent);
+			if (breadcrumb.onClick) {
+				crumb.addEventListener("click", () => {
+					if (breadcrumb.isCurrent) {
+						return;
+					}
+					void breadcrumb.onClick();
+				});
+			}
+		});
+
+		setInteractiveDisabled(this.backButtonEl, !this.canNavigateBack());
 	}
 
 	private getFrontmatterValues(file: TFile, metadataCache: MetadataCache) {
@@ -1235,14 +1563,18 @@ class ArkidianView extends ItemView {
 		}, 150);
 	}
 
-	private async renderSectionCard(section: SectionNode, state: CanvasItemState) {
+	private async renderSectionCard(
+		section: SectionNode,
+		state: CanvasItemState,
+		embeds: EmbedNode[]
+	) {
 		const card = this.stageEl.createDiv({ cls: "arkidian-card" });
 		this.enableItemSelection(card, section.id);
 		applyItemFrame(card, state);
 
 		const body = card.createDiv({ cls: "arkidian-card-body" });
 		const preview = body.createDiv({ cls: "arkidian-preview" });
-		await this.renderMarkdownPreview(preview, section.content);
+		await this.renderMarkdownPreview(preview, section.content, embeds);
 		state.height = Math.max(DEFAULT_CARD_HEIGHT, Math.ceil(card.offsetHeight));
 		applyItemFrame(card, state);
 		card.addEventListener("click", (event) => {
@@ -1269,14 +1601,18 @@ class ArkidianView extends ItemView {
 		this.enableCardResizing(card, section.id, state);
 	}
 
-	private async renderOrphan(orphan: OrphanNode, state: CanvasItemState) {
+	private async renderOrphan(
+		orphan: OrphanNode,
+		state: CanvasItemState,
+		embeds: EmbedNode[]
+	) {
 		const item = this.stageEl.createDiv({ cls: "arkidian-orphan" });
 		this.enableItemSelection(item, orphan.id);
 		item.toggleClass("is-drillable", Boolean(orphan.childScopeId));
 		applyItemFrame(item, state);
 
 		const preview = item.createDiv({ cls: "arkidian-preview" });
-		await this.renderMarkdownPreview(preview, orphan.content.trim());
+		await this.renderMarkdownPreview(preview, orphan.content.trim(), embeds);
 		state.height = Math.max(1, Math.ceil(item.offsetHeight));
 		applyItemFrame(item, state);
 		item.addEventListener("click", (event) => {
@@ -1644,7 +1980,11 @@ class ArkidianView extends ItemView {
 		await this.app.vault.modify(this.currentFile, nextLines.join("\n"));
 	}
 
-	private async renderMarkdownPreview(container: HTMLElement, markdown: string) {
+	private async renderMarkdownPreview(
+		container: HTMLElement,
+		markdown: string,
+		embeds: EmbedNode[] = []
+	) {
 		container.empty();
 		container.addClass("markdown-rendered", "markdown-preview-view");
 		if (!this.currentFile) {
@@ -1660,16 +2000,101 @@ class ArkidianView extends ItemView {
 		container.querySelectorAll("img").forEach((image) => {
 			image.draggable = false;
 		});
+		this.decorateRenderedEmbeds(container, embeds);
 	}
 
-	private async openSourceInPopout(line: number) {
-		if (!this.currentFile) {
+	private decorateRenderedEmbeds(container: HTMLElement, embeds: EmbedNode[]) {
+		const renderedEmbeds = Array.from(
+			container.querySelectorAll<HTMLElement>(
+				".internal-embed, .markdown-embed, .image-embed, .media-embed"
+			)
+		);
+		renderedEmbeds.forEach((element, index) => {
+			const embed = embeds[index];
+			if (!embed) {
+				return;
+			}
+
+			element.dataset.itemId = embed.id;
+			element.dataset.embedId = embed.id;
+			element.addClass("arkidian-selectable-embed");
+			element.setAttribute("role", "button");
+			element.tabIndex = 0;
+			element.setAttribute(
+				"aria-label",
+				`${getEmbedLayerLabel(embed)} embed`
+			);
+			element.addEventListener("pointerdown", (event) => {
+				if (this.isSpacePressed || event.button !== 0) {
+					return;
+				}
+				event.stopPropagation();
+				this.selectItem(embed.id, element);
+			}, true);
+			element.addEventListener("click", (event) => {
+				if (!(event.metaKey || event.ctrlKey)) {
+					return;
+				}
+				event.preventDefault();
+				event.stopPropagation();
+				void this.enterEmbed(embed);
+			}, true);
+			element.addEventListener("dblclick", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.openEmbedSource(embed);
+			}, true);
+			element.addEventListener("keydown", (event) => {
+				if (event.key === "Enter") {
+					event.preventDefault();
+					void this.enterEmbed(embed);
+				}
+			});
+		});
+	}
+
+	private async openEmbedSource(embed: EmbedNode) {
+		if (this.currentFile) {
+			try {
+				await this.app.workspace.openLinkText(embed.link, this.currentFile.path, "window", {
+					active: true,
+					state: {
+						mode: "source"
+					}
+				});
+				return;
+			} catch (error) {
+				console.error("Arkidian: failed to open embed via openLinkText", error);
+			}
+		}
+
+		const resolved =
+			embed.targetFilePath
+				? {
+						file: this.app.vault.getAbstractFileByPath(embed.targetFilePath),
+						line: embed.targetLine ?? 0
+					}
+				: await this.resolveEmbedTarget(embed.link);
+
+		if (resolved?.file instanceof TFile) {
+			await this.openSourceInPopout(resolved.line ?? 0, resolved.file);
+			return;
+		}
+
+		if (this.currentFile) {
+			new Notice("Could not resolve the embed target. Opening the source note instead.");
+			await this.openSourceInPopout(embed.startLine, this.currentFile);
+		}
+	}
+
+	private async openSourceInPopout(line: number, file = this.currentFile) {
+		if (!file) {
 			return;
 		}
 
 		try {
 			const leaf = this.app.workspace.openPopoutLeaf();
-			await leaf.openFile(this.currentFile, {
+			await leaf.openFile(file, {
 				active: true,
 				state: {
 					mode: "source"
@@ -1705,6 +2130,43 @@ class ArkidianView extends ItemView {
 		const parent = file.parent?.path;
 		const base = `${file.basename}${META_SUFFIX}`;
 		return parent ? `${parent}/${base}` : base;
+	}
+
+	private async openCanvasLocation(filePath: string, scopeId: string) {
+		const file = this.app.vault.getAbstractFileByPath(filePath);
+		if (!(file instanceof TFile)) {
+			new Notice("Could not resolve the target note for this canvas entry.");
+			return;
+		}
+
+		this.currentFile = file;
+		this.currentScopeId = scopeId;
+		this.fittedFilePath = null;
+		this.fittedScopeId = null;
+		await this.renderCurrentFile();
+	}
+
+	private async enterEmbed(embed: EmbedNode) {
+		if (!embed.targetFilePath) {
+			new Notice("Could not resolve the embedded note.");
+			return;
+		}
+
+		this.sourceTrail = [
+			...this.sourceTrail,
+			{
+				label: embed.label,
+				sourceFilePath: this.currentFile?.path ?? embed.targetFilePath,
+				sourceScopeId: this.currentScopeId,
+				sourceLine: embed.startLine,
+				targetFilePath: embed.targetFilePath,
+				targetScopeId: embed.targetScopeId ?? "scope:root"
+			}
+		];
+		await this.openCanvasLocation(
+			embed.targetFilePath,
+			embed.targetScopeId ?? "scope:root"
+		);
 	}
 
 	private async enterScope(scopeId: string) {
@@ -2149,6 +2611,42 @@ function getLineCount(text: string) {
 	return text.split(/\r?\n/).length - 1;
 }
 
+function extractLinkSubpath(link: string) {
+	const hashIndex = link.indexOf("#");
+	if (hashIndex === -1) {
+		return null;
+	}
+
+	const subpath = link.slice(hashIndex);
+	return subpath.length ? subpath : null;
+}
+
+function normalizeEmbedBreadcrumbLabel(label: string) {
+	return label.startsWith("![[") || label.startsWith("![")
+		? label
+		: `![[${label.replace(/^!+/, "")}]]`;
+}
+
+function getFileNameFromPath(path: string) {
+	const normalized = path.replace(/\\/g, "/");
+	const segments = normalized.split("/");
+	return segments[segments.length - 1] || path;
+}
+
+function getResolvedSubpathStartLine(
+	resolvedSubpath: ReturnType<typeof resolveSubpath>
+) {
+	if (!resolvedSubpath) {
+		return 0;
+	}
+
+	if ("current" in resolvedSubpath) {
+		return resolvedSubpath.current.position.start.line;
+	}
+
+	return resolvedSubpath.position.start.line;
+}
+
 function createInteractiveControl(
 	parent: HTMLElement,
 	options: {
@@ -2297,6 +2795,11 @@ function getOrphanLayerIcon(orphan: OrphanNode) {
 	return "minus";
 }
 
+function getEmbedLayerLabel(embed: EmbedNode) {
+	const label = normalizeEmbedBreadcrumbLabel(embed.label || embed.original || embed.link);
+	return label.length > 34 ? `${label.slice(0, 31).trimEnd()}...` : label;
+}
+
 function applyItemFrame(element: HTMLElement, state: CanvasItemState) {
 	element.style.left = `${STAGE_WIDTH / 2 + state.x}px`;
 	element.style.top = `${STAGE_HEIGHT / 2 + state.y}px`;
@@ -2353,7 +2856,9 @@ function isTypingTarget(target: EventTarget | null) {
 function shouldIgnoreCardActivation(target: EventTarget | null) {
 	return (
 		target instanceof HTMLElement &&
-		(Boolean(target.closest("a")) || isTypingTarget(target))
+		(Boolean(target.closest("a")) ||
+			Boolean(target.closest("[data-embed-id]")) ||
+			isTypingTarget(target))
 	);
 }
 
@@ -2361,6 +2866,7 @@ function isInteractiveTarget(target: EventTarget | null) {
 	return (
 		target instanceof HTMLElement &&
 		(Boolean(target.closest('[role="button"]')) ||
+			Boolean(target.closest("[data-embed-id]")) ||
 			Boolean(target.closest("input")) ||
 			Boolean(target.closest("textarea")) ||
 			Boolean(target.closest("select")) ||

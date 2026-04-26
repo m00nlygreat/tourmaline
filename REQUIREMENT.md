@@ -22,6 +22,10 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
 - Ctrl/Cmd-clicking a Shell enters that Shell's child canvas scope.
 - Ctrl/Cmd-clicking an orphan that contains its own heading hierarchy enters that orphan's child canvas scope.
+- Markdown embeds remain visually in-flow inside their parent Shell or orphan preview instead of becoming separate floating cards.
+- Markdown embeds are still treated as independently selectable nodes for interaction, navigation, and layer management.
+- Ctrl/Cmd-clicking an embed enters the embedded target in the canvas when that target can be resolved.
+- Double-clicking an embed opens the embedded source note in a separate Obsidian window focused on the embedded target.
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
 - Double-clicking an orphan opens the current level's source note in a separate Obsidian window focused on that orphan block.
 
@@ -41,6 +45,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Cards and orphan elements support selection and repositioning.
 - Selected canvas elements are highlighted with the accent color on their outline.
 - The selected canvas element is also highlighted in the layer panel.
+- Selected embeds inside a preview are also highlighted in the layer panel using the same shared selection state.
 - Dragging inside a card should prioritize moving the card over native image drag behavior.
 - Card width and position are user-adjustable.
 - Adjusted card width is persisted in the sibling meta file and restored on reload.
@@ -52,8 +57,10 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Grid alignment must stay locked to the world origin `(0, 0)` during pan, scroll, zoom, and fit operations.
 - Cards and canvas objects remain regular DOM elements; only the background grid moves to canvas rendering for performance.
 - The top toolbar shows breadcrumbs on the left and action buttons grouped on the right.
+- Breadcrumbs include the source-side embed entry chain when the current canvas was reached by entering an embed.
 - A Figma-style layer panel sits on the left side of the view.
 - The layer panel shows the current canvas scope's elements and their descendants as a nested tree.
+- The layer panel also shows markdown embeds as separate child nodes under the Shell or orphan that visually contains them.
 - Layer order follows the source document order instead of grouping Shells and Shell-less blocks separately.
 - The layer panel should not repeat a Shell heading as both the Shell row and a child heading element.
 - Single-clicking a drillable layer only expands that layer's tree in the panel.

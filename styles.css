@@ -523,6 +523,29 @@
   overflow: auto;
 }
 
+.arkidian-selectable-embed {
+  position: relative;
+  display: block;
+  border-radius: 14px;
+  outline: 1px solid transparent;
+  outline-offset: 4px;
+  transition:
+    outline-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+.arkidian-selectable-embed:hover {
+  outline-color: color-mix(in srgb, var(--interactive-accent) 42%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+
+.arkidian-selectable-embed.is-selected,
+.arkidian-selectable-embed:focus-visible {
+  outline-color: var(--interactive-accent);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+}
+
 .arkidian-orphan .arkidian-preview {
   padding: 4px 10px 4px 2px;
   overflow: visible;
