@@ -375,6 +375,15 @@ class ArkidianView extends ItemView {
 				}
 				this.isSpacePressed = true;
 				this.scrollEl.addClass("is-space-panning");
+				return;
+			}
+
+			if (
+				(event.key === "Delete" || event.key === "Backspace") &&
+				!isTypingTarget(event.target)
+			) {
+				event.preventDefault();
+				void this.deleteSelectedItem();
 			}
 		});
 		this.registerDomEvent(window, "keyup", (event: KeyboardEvent) => {
@@ -2230,6 +2239,93 @@ class ArkidianView extends ItemView {
 		});
 	}
 
+	private getCurrentRenderableItem(itemId: string) {
+		if (!this.parsedDocument) {
+			return null;
+		}
+
+		const scope = this.parsedDocument.scopes[this.currentScopeId];
+		if (!scope) {
+			return null;
+		}
+
+		const renderables = this.getRenderableItems(
+			scope,
+			this.getFrontmatterItem(scope),
+			this.getDisplayOrphans(scope)
+		);
+		return renderables.find((renderable) => renderable.id === itemId) ?? null;
+	}
+
+	private async deleteSelectedItem() {
+		if (!this.currentFile || !this.selectedItemId) {
+			return;
+		}
+
+		const renderable = this.getCurrentRenderableItem(this.selectedItemId);
+		if (!renderable) {
+			return;
+		}
+
+		if (renderable.kind === "frontmatter") {
+			new Notice("Properties card cannot be deleted this way.");
+			return;
+		}
+
+		if (
+			renderable.kind === "orphan" &&
+			(renderable.item.id === "orphan:scope:root:file-title" ||
+				renderable.item.id.endsWith(":scope-heading"))
+		) {
+			new Notice("This generated heading card cannot be deleted this way.");
+			return;
+		}
+
+		const latest = await this.app.vault.read(this.currentFile);
+		const lines = latest.split(/\r?\n/);
+		const startLine = renderable.item.startLine;
+		const endLine = renderable.item.endLine;
+		const nextLines = [
+			...lines.slice(0, startLine),
+			...lines.slice(endLine + 1)
+		];
+
+		this.clearSelectedItem();
+		this.suppressFileRefreshUntil = Date.now() + 800;
+		await this.app.vault.modify(this.currentFile, nextLines.join("\n"));
+		await this.removeDeletedItemMeta(renderable);
+		await this.renderCurrentFile();
+	}
+
+	private async removeDeletedItemMeta(
+		renderable: Exclude<RenderableScopeItem, { kind: "frontmatter" }>
+	) {
+		if (!this.currentFile) {
+			return;
+		}
+
+		const timer = this.saveTimers.get(renderable.id);
+		if (timer) {
+			window.clearTimeout(timer);
+			this.saveTimers.delete(renderable.id);
+		}
+
+		const meta = await this.readMeta(this.currentFile);
+		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
+		delete scopeMeta.items[renderable.id];
+		meta.scopes[this.currentScopeId] = scopeMeta;
+
+		const childScopeId =
+			renderable.kind === "section"
+				? renderable.item.scopeId
+				: renderable.item.childScopeId;
+		if (childScopeId) {
+			removeScopeMetaTree(meta, childScopeId);
+		}
+
+		await this.writeMeta(meta);
+	}
+
 	private getMetaPath(file: TFile) {
 		const parent = file.parent?.path;
 		const base = `${file.basename}${META_SUFFIX}`;
@@ -2699,6 +2795,14 @@ function getScopeInsertLine(
 	}
 
 	return lineOffset + lines.length;
+}
+
+function removeScopeMetaTree(meta: CanvasMeta, scopeId: string) {
+	for (const key of Object.keys(meta.scopes)) {
+		if (key === scopeId || key.startsWith(`${scopeId} >`) || key.startsWith(`${scopeId}:`)) {
+			delete meta.scopes[key];
+		}
+	}
 }
 
 function getParentScopeId(scopeId: string) {

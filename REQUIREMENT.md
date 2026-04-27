@@ -29,6 +29,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
 - If the Zoom plugin is not installed, the opened editor window should still open already scrolled to the clicked source location.
 - Double-clicking an orphan opens the current level's source note in a separate Obsidian window focused on that orphan block.
+- Pressing `Delete` or `Backspace` while a canvas card or orphan is selected removes that source block from the Markdown document and removes the canvas item.
 
 ## Canvas Behavior
 
@@ -47,6 +48,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Cards and orphan elements support selection and repositioning.
 - Selected canvas elements are highlighted with the accent color on their outline.
 - The selected canvas element is also highlighted in the layer panel.
+- `Delete` and `Backspace` act on the currently selected canvas item when focus is not inside a text input.
 - Selected embeds inside a preview are also highlighted in the layer panel using the same shared selection state.
 - Dragging inside a card should prioritize moving the card over native image drag behavior.
 - Card width and position are user-adjustable.
