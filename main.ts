@@ -2028,7 +2028,6 @@ class ArkidianView extends ItemView {
 				if (this.isSpacePressed || event.button !== 0) {
 					return;
 				}
-				event.stopPropagation();
 				this.selectItem(embed.id, element);
 			}, true);
 			element.addEventListener("click", (event) => {
@@ -2863,10 +2862,11 @@ function shouldIgnoreCardActivation(target: EventTarget | null) {
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
+	const closestButton =
+		target instanceof HTMLElement ? target.closest<HTMLElement>('[role="button"]') : null;
 	return (
 		target instanceof HTMLElement &&
-		(Boolean(target.closest('[role="button"]')) ||
-			Boolean(target.closest("[data-embed-id]")) ||
+		(Boolean(closestButton && !closestButton.hasAttribute("data-embed-id")) ||
 			Boolean(target.closest("input")) ||
 			Boolean(target.closest("textarea")) ||
 			Boolean(target.closest("select")) ||
