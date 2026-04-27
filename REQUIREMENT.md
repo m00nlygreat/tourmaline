@@ -59,7 +59,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Grid alignment must stay locked to the world origin `(0, 0)` during pan, scroll, zoom, and fit operations.
 - Cards and canvas objects remain regular DOM elements; only the background grid moves to canvas rendering for performance.
 - The top toolbar shows breadcrumbs on the left and action buttons grouped on the right.
-- Breadcrumbs include the source-side embed entry chain when the current canvas was reached by entering an embed.
+- Breadcrumbs include the source-side file and scope chain when the current canvas was reached by entering an embed, without showing the raw embed syntax itself as a separate step.
 - A Figma-style layer panel sits on the left side of the view.
 - The layer panel shows the current canvas scope's elements and their descendants as a nested tree.
 - The layer panel also shows markdown embeds as separate child nodes under the Shell or orphan that visually contains them.

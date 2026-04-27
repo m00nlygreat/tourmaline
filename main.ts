@@ -1053,6 +1053,15 @@ class ArkidianView extends ItemView {
 		);
 	}
 
+	private async openTrailLocation(
+		filePath: string,
+		scopeId: string,
+		trailLength: number
+	) {
+		this.sourceTrail = this.sourceTrail.slice(0, trailLength);
+		await this.openCanvasLocation(filePath, scopeId);
+	}
+
 	private buildBreadcrumbs(scope?: ParsedScope) {
 		const breadcrumbs: Array<{
 			label: string;
@@ -1061,24 +1070,34 @@ class ArkidianView extends ItemView {
 		}> = [];
 
 		let lastFilePath: string | null = null;
-		for (const entry of this.sourceTrail) {
+		for (const [entryIndex, entry] of this.sourceTrail.entries()) {
 			if (entry.sourceFilePath !== lastFilePath) {
 				breadcrumbs.push({
 					label: getFileNameFromPath(entry.sourceFilePath),
-					isCurrent: false
+					isCurrent: false,
+					onClick: async () => {
+						await this.openTrailLocation(entry.sourceFilePath, "scope:root", entryIndex);
+					}
 				});
 			}
 			lastFilePath = entry.sourceFilePath;
-			for (const segment of getScopePathSegments(entry.sourceScopeId)) {
+			const sourceSegments = getScopePathSegments(entry.sourceScopeId);
+			for (const [segmentIndex, segment] of sourceSegments.entries()) {
+				const targetScopeId = `scope:${sourceSegments
+					.slice(0, segmentIndex + 1)
+					.join(" > ")}`;
 				breadcrumbs.push({
 					label: segment,
-					isCurrent: false
+					isCurrent: false,
+					onClick: async () => {
+						await this.openTrailLocation(
+							entry.sourceFilePath,
+							targetScopeId,
+							entryIndex
+						);
+					}
 				});
 			}
-			breadcrumbs.push({
-				label: normalizeEmbedBreadcrumbLabel(entry.label),
-				isCurrent: false
-			});
 			lastFilePath = entry.targetFilePath;
 		}
 
