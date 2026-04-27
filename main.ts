@@ -79,6 +79,9 @@ type ParsedScope = {
 	startLine: number;
 	endLine: number;
 	depth: number | null;
+	headingLevel: number | null;
+	canvasHeadingLevel: number;
+	insertLine: number;
 	sections: SectionNode[];
 	orphans: OrphanNode[];
 };
@@ -172,6 +175,11 @@ type ZoomPluginApi = {
 type EditorLike = {
 	setCursor(pos: { line: number; ch: number }): void;
 	scrollIntoView(range: { from: { line: number; ch: number }; to?: { line: number; ch: number } }, center?: boolean): void;
+	setSelection?(
+		from: { line: number; ch: number },
+		to: { line: number; ch: number }
+	): void;
+	focus?(): void;
 };
 
 declare global {
@@ -1252,6 +1260,29 @@ class ArkidianView extends ItemView {
 				event.preventDefault();
 			}
 		});
+		this.scrollEl.addEventListener("dblclick", (event) => {
+			if (
+				event.button !== 0 ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				event.shiftKey
+			) {
+				return;
+			}
+
+			if (
+				event.target !== this.scrollEl &&
+				event.target !== this.stageViewportEl &&
+				event.target !== this.stageEl
+			) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			void this.createHeadingAtCurrentScope();
+		});
 	}
 
 	private handleCanvasWheel(event: WheelEvent) {
@@ -2087,6 +2118,14 @@ class ArkidianView extends ItemView {
 	}
 
 	private async openSourceInPopout(line: number, file = this.currentFile) {
+		return this.openSourceInPopoutWithSelection(line, file);
+	}
+
+	private async openSourceInPopoutWithSelection(
+		line: number,
+		file = this.currentFile,
+		selection?: { fromCh: number; toCh: number }
+	) {
 		if (!file) {
 			return;
 		}
@@ -2108,13 +2147,18 @@ class ArkidianView extends ItemView {
 				return;
 			}
 
-			const linePosition = { line, ch: 0 };
-			editor.setCursor(linePosition);
-			editor.scrollIntoView({ from: linePosition, to: linePosition }, true);
+			const from = { line, ch: selection?.fromCh ?? 0 };
+			const to = { line, ch: selection?.toCh ?? from.ch };
+			if (selection && editor.setSelection) {
+				editor.setSelection(from, to);
+			} else {
+				editor.setCursor(from);
+			}
+			editor.scrollIntoView({ from, to }, true);
+			editor.focus?.();
 
 			const zoomPlugin = window.ObsidianZoomPlugin;
 			if (!zoomPlugin) {
-				new Notice("Opened the note in a new window. Zoom plugin is not available.");
 				return;
 			}
 
@@ -2123,6 +2167,48 @@ class ArkidianView extends ItemView {
 			console.error("Arkidian: failed to open source in popout", error);
 			new Notice("Could not open this source block in a new editor window.");
 		}
+	}
+
+	private async createHeadingAtCurrentScope() {
+		if (!this.currentFile) {
+			return;
+		}
+
+		const source = await this.app.vault.read(this.currentFile);
+		const parsed = parseMarkdownStructure(source);
+		const scope = parsed.scopes[this.currentScopeId];
+		if (!scope) {
+			new Notice("Could not resolve the current canvas scope.");
+			return;
+		}
+
+		const headingLevel = clamp(scope.canvasHeadingLevel, 1, 6);
+		const headingPrefix = `${"#".repeat(headingLevel)} `;
+		const headingTitle = "Untitled";
+		const headingLine = `${headingPrefix}${headingTitle}`;
+		const lines = source.length ? source.split(/\r?\n/) : [];
+		const insertLine = clamp(scope.insertLine, 0, lines.length);
+		const before = lines.slice(0, insertLine);
+		const after = lines.slice(insertLine);
+		const prefixBlank =
+			before.length > 0 && before[before.length - 1].trim().length > 0 ? [""] : [];
+		const insertedLine = before.length + prefixBlank.length;
+		const nextLines = [
+			...before,
+			...prefixBlank,
+			headingLine,
+			"",
+			"",
+			...after
+		];
+
+		this.suppressFileRefreshUntil = Date.now() + 500;
+		await this.app.vault.modify(this.currentFile, nextLines.join("\n"));
+		await this.renderCurrentFile();
+		await this.openSourceInPopoutWithSelection(insertedLine, this.currentFile, {
+			fromCh: headingPrefix.length,
+			toCh: headingLine.length
+		});
 	}
 
 	private getMetaPath(file: TFile) {
@@ -2426,6 +2512,10 @@ function buildScope(
 		startLine: nodes.length ? getNodeStartLine(nodes[0], lineOffset) : 0,
 		endLine: nodes.length ? getNodeEndLine(nodes[nodes.length - 1], lineOffset) : 0,
 		depth: minDepth,
+		headingLevel: scopeHeading?.depth ?? null,
+		canvasHeadingLevel:
+			minDepth ?? Math.min(6, Math.max(1, (scopeHeading?.depth ?? 0) + 1)),
+		insertLine: getScopeInsertLine(nodes, scopeHeading, lines, lineOffset),
 		sections: scopeSections,
 		orphans: scopeOrphans
 	};
@@ -2573,6 +2663,23 @@ function getNodeEndLine(node: Content | Heading, lineOffset = 0) {
 		getNodeStartLine(node, lineOffset),
 		lineOffset + (node.position?.end.line ?? 1) - 1
 	);
+}
+
+function getScopeInsertLine(
+	nodes: Content[],
+	heading: Heading | null,
+	lines: string[],
+	lineOffset: number
+) {
+	if (nodes.length) {
+		return getNodeEndLine(nodes[nodes.length - 1], lineOffset) + 1;
+	}
+
+	if (heading) {
+		return getNodeEndLine(heading, lineOffset) + 1;
+	}
+
+	return lineOffset + lines.length;
 }
 
 function getParentScopeId(scopeId: string) {

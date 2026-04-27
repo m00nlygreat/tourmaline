@@ -27,6 +27,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Ctrl/Cmd-clicking an embed enters the embedded target in the canvas when that target can be resolved.
 - Double-clicking an embed opens the embedded source note in a separate Obsidian window focused on the embedded target.
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.
+- If the Zoom plugin is not installed, the opened editor window should still open already scrolled to the clicked source location.
 - Double-clicking an orphan opens the current level's source note in a separate Obsidian window focused on that orphan block.
 
 ## Canvas Behavior
@@ -39,6 +40,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - On first open, the viewport and zoom default to a fitted view that shows all current content within one screen while still presenting the canvas around the world origin.
 - Refresh/rebuild and file load must also refit the initial viewport so current content is visible without manual panning.
 - The canvas uses a much larger world area, approximately 10x the earlier default workspace.
+- Double-clicking empty canvas floor creates a new heading at the current canvas level, followed by two blank lines, and opens a source editor ready to rename it.
 - The center of the world is `(0, 0)`, and item positions extend into negative and positive `x/y` coordinates from there.
 - Holding the space bar enables drag-to-pan navigation.
 - Middle mouse button drag also enables the same pan navigation without holding the space bar.
