@@ -30,3 +30,4 @@
 - Selection should be one shared state between canvas items and layer rows. If the panel and canvas can disagree, the interface quickly feels unreliable.
 - Keep resize handles hidden until selection, use hover only as a soft preview, and reserve Obsidian accent color for explicit selection state.
 - For markdown embeds, keep the DOM visually in-flow inside the preview and add node identity on top. Pulling embeds out into separate canvas cards breaks shell readability even if interaction becomes easier.
+- When layer structure looks wrong, first verify parsed shell line ranges. A bad section `endLine` makes embed ownership look like a layer-tree bug.

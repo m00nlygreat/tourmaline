@@ -510,7 +510,7 @@ class ArkidianView extends ItemView {
 			return;
 		}
 		const renderableContexts = this.buildRenderableContexts(renderableItems);
-		const layerPanelContexts = this.buildRenderableContexts(layerPanelItems);
+		const layerPanelContexts = this.buildLayerPanelRenderableContexts(layerPanelItems);
 		const meta = await this.readMeta(this.currentFile);
 		if (!this.isRenderCurrent(renderToken)) {
 			return;
@@ -713,6 +713,83 @@ class ArkidianView extends ItemView {
 		}));
 	}
 
+	private buildLayerPanelRenderableContexts(
+		renderableItems: RenderableScopeItem[]
+	): RenderableItemContext[] {
+		const embedOwners = this.getLayerPanelEmbedOwners(renderableItems);
+		return renderableItems.map((renderable) => ({
+			renderable,
+			embeds: renderable.kind === "frontmatter" ? [] : embedOwners.get(renderable.id) ?? []
+		}));
+	}
+
+	private getLayerPanelEmbedOwners(renderableItems: RenderableScopeItem[]) {
+		const ownerMap = new Map<string, EmbedNode[]>();
+		const candidates = this.getLayerPanelEmbedOwnerCandidates();
+		const embeds = dedupeEmbedsBySource(
+			renderableItems.flatMap((renderable) =>
+				renderable.kind === "frontmatter" ? [] : this.getEmbedsForItem(renderable.id)
+			)
+		);
+
+		for (const embed of embeds) {
+			const owner = candidates
+				.filter((renderable) => isEmbedInsideRenderable(embed, renderable))
+				.sort(
+					(a, b) =>
+						getRenderableLineSpan(a) - getRenderableLineSpan(b) ||
+						b.startLine - a.startLine
+				)[0];
+			if (!owner) {
+				continue;
+			}
+
+			const ownedEmbeds = ownerMap.get(owner.id) ?? [];
+			ownedEmbeds.push(embed);
+			ownerMap.set(owner.id, ownedEmbeds);
+		}
+
+		for (const ownedEmbeds of ownerMap.values()) {
+			ownedEmbeds.sort(
+				(a, b) => a.startLine - b.startLine || a.endLine - b.endLine
+			);
+		}
+
+		return ownerMap;
+	}
+
+	private getLayerPanelEmbedOwnerCandidates() {
+		if (!this.parsedDocument) {
+			return [];
+		}
+
+		return Object.values(this.parsedDocument.scopes)
+			.flatMap((scope) =>
+				this.getRenderableItems(
+					scope,
+					this.getFrontmatterItem(scope),
+					this.getLayerPanelOrphans(scope)
+				)
+			)
+			.filter(
+				(
+					renderable
+				): renderable is Exclude<RenderableScopeItem, { kind: "frontmatter" }> =>
+					renderable.kind !== "frontmatter" &&
+					!this.isGeneratedLayerPanelOrphan(renderable)
+			);
+	}
+
+	private isGeneratedLayerPanelOrphan(
+		renderable: Exclude<RenderableScopeItem, { kind: "frontmatter" }>
+	) {
+		return (
+			renderable.kind === "orphan" &&
+			(renderable.item.id === "orphan:scope:root:file-title" ||
+				renderable.item.id.endsWith(":scope-heading"))
+		);
+	}
+
 	private renderLayerPanel(
 		scope: ParsedScope,
 		renderableItems: RenderableItemContext[]
@@ -755,7 +832,7 @@ class ArkidianView extends ItemView {
 
 		this.renderLayerPanel(
 			scope,
-			this.buildRenderableContexts(
+			this.buildLayerPanelRenderableContexts(
 				this.getRenderableItems(
 					scope,
 					this.getFrontmatterItem(scope),
@@ -769,9 +846,9 @@ class ArkidianView extends ItemView {
 		scopeId: string,
 		renderableItems: RenderableItemContext[]
 	): LayerTreeNode[] {
-		return renderableItems.map(({ renderable, embeds }) => {
+		return renderableItems.flatMap(({ renderable, embeds }) => {
 			if (renderable.kind === "frontmatter") {
-				return {
+				return [{
 					id: renderable.id,
 					label: "Properties",
 					icon: "sliders-horizontal",
@@ -780,11 +857,15 @@ class ArkidianView extends ItemView {
 					sourceScopeId: scopeId,
 					openLine: 0,
 					children: []
-				};
+				}];
 			}
 
 			if (renderable.kind === "section") {
-				return {
+				const embedChildren = embeds.map((embed) => this.createEmbedLayerNode(embed));
+				const descendantChildren = this.buildDescendantLayerTree(
+					renderable.item.scopeId
+				);
+				return [{
 					id: renderable.id,
 					label: renderable.item.title,
 					icon: getHeadingIcon(renderable.item.level),
@@ -794,14 +875,18 @@ class ArkidianView extends ItemView {
 					sourceScopeId: scopeId,
 					targetScopeId: renderable.item.scopeId,
 					openLine: renderable.item.startLine,
-					children: [
-						...embeds.map((embed) => this.createEmbedLayerNode(embed)),
-						...this.buildDescendantLayerTree(renderable.item.scopeId)
-					]
-				};
+					children: mergeLayerChildren(descendantChildren, embedChildren)
+				}];
 			}
 
-			return {
+			const embedChildren = embeds.map((embed) => this.createEmbedLayerNode(embed));
+			const descendantChildren = renderable.item.childScopeId
+				? this.buildDescendantLayerTree(renderable.item.childScopeId)
+				: [];
+			if (embedChildren.length && !descendantChildren.length) {
+				return embedChildren;
+			}
+			return [{
 				id: renderable.id,
 				label: getOrphanLayerLabel(renderable.item),
 				icon: getOrphanLayerIcon(renderable.item),
@@ -811,13 +896,8 @@ class ArkidianView extends ItemView {
 				sourceScopeId: scopeId,
 				targetScopeId: renderable.item.childScopeId,
 				openLine: renderable.item.startLine,
-				children: [
-					...embeds.map((embed) => this.createEmbedLayerNode(embed)),
-					...(renderable.item.childScopeId
-						? this.buildDescendantLayerTree(renderable.item.childScopeId)
-						: [])
-				]
-			};
+				children: mergeLayerChildren(descendantChildren, embedChildren)
+			}];
 		});
 	}
 
@@ -833,7 +913,7 @@ class ArkidianView extends ItemView {
 
 		return this.buildLayerTree(
 			scope.id,
-			this.buildRenderableContexts(
+			this.buildLayerPanelRenderableContexts(
 				this.getRenderableItems(scope, null, this.getLayerPanelOrphans(scope))
 			)
 		);
@@ -896,7 +976,7 @@ class ArkidianView extends ItemView {
 				endLine: embed.position.end.line,
 				sourceScopeId:
 					renderable.kind === "section"
-						? renderable.item.scopeId
+						? getParentScopeId(renderable.item.scopeId) ?? "scope:root"
 						: renderable.item.scopeId,
 				targetFilePath: target?.file.path ?? null,
 				targetScopeId: target?.scopeId ?? null,
@@ -983,7 +1063,7 @@ class ArkidianView extends ItemView {
 			row.toggleClass("is-current-scope", node.targetScopeId === this.currentScopeId);
 			row.toggleClass(
 				"is-drillable",
-				Boolean(node.targetScopeId || node.targetFilePath)
+				node.kind !== "embed" && Boolean(node.targetScopeId || node.targetFilePath)
 			);
 			row.toggleClass("is-selected", node.id === this.selectedItemId);
 			this.enableLayerRowReordering(row, node);
@@ -1080,11 +1160,8 @@ class ArkidianView extends ItemView {
 	private async openLayerNode(node: LayerTreeNode) {
 		if (node.kind === "embed") {
 			const embed = this.findEmbedById(node.id);
-			if (embed && embed.targetFilePath && typeof embed.targetLine === "number") {
-				const targetFile = this.app.vault.getAbstractFileByPath(embed.targetFilePath);
-				if (targetFile instanceof TFile) {
-					await this.openSourceInPopout(embed.targetLine, targetFile);
-				}
+			if (embed) {
+				await this.openEmbedSource(embed);
 			}
 			return;
 		}
@@ -1954,12 +2031,26 @@ class ArkidianView extends ItemView {
 	}
 
 	private selectItemById(itemId: string) {
-		const element = this.stageEl.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`);
+		const element =
+			this.stageEl.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`) ??
+			this.findRenderedEmbedElement(itemId);
 		if (!element) {
 			this.clearSelectedItem();
 			return;
 		}
 		this.selectItem(itemId, element);
+	}
+
+	private findRenderedEmbedElement(embedId: string) {
+		const embed = this.findEmbedById(embedId);
+		if (!embed) {
+			return null;
+		}
+
+		const escapedLink = cssEscape(embed.link);
+		return this.stageEl.querySelector<HTMLElement>(
+			`[data-embed-link="${escapedLink}"][data-embed-start-line="${embed.startLine}"]`
+		);
 	}
 
 	private clearSelectedItem() {
@@ -2120,6 +2211,8 @@ class ArkidianView extends ItemView {
 
 			element.dataset.itemId = embed.id;
 			element.dataset.embedId = embed.id;
+			element.dataset.embedLink = embed.link;
+			element.dataset.embedStartLine = `${embed.startLine}`;
 			element.addClass("arkidian-selectable-embed");
 			element.setAttribute("role", "button");
 			element.tabIndex = 0;
@@ -2408,7 +2501,7 @@ class ArkidianView extends ItemView {
 		return visit(
 			this.buildLayerTree(
 				scope.id,
-				this.buildRenderableContexts(
+				this.buildLayerPanelRenderableContexts(
 					this.getRenderableItems(
 						scope,
 						this.getFrontmatterItem(scope),
@@ -2431,7 +2524,7 @@ class ArkidianView extends ItemView {
 
 		return this.buildLayerTree(
 			scopeId,
-			this.buildRenderableContexts(
+			this.buildLayerPanelRenderableContexts(
 				this.getRenderableItems(scope, this.getFrontmatterItem(scope), this.getLayerPanelOrphans(scope))
 			)
 		).filter((node) => this.canReorderLayerNode(node));
@@ -2906,7 +2999,7 @@ function buildScope(
 				level: node.depth,
 				path: shellPath,
 				startLine: getNodeStartLine(node, lineOffset),
-				endLine: getScopeEndLine(bodyNodes, node, lines, lineOffset),
+				endLine: getScopeEndLine(bodyNodes, node, lineOffset),
 				content: [getNodeMarkdown(markdown, lines, node), ...bodyNodes.map((bodyNode) => getNodeMarkdown(markdown, lines, bodyNode))]
 					.filter((part) => part.trim().length > 0)
 					.join("\n\n"),
@@ -3048,7 +3141,6 @@ function buildShellLessNodes(
 function getScopeEndLine(
 	nodes: Content[],
 	heading: Heading,
-	lines: string[],
 	lineOffset: number
 ) {
 	if (!nodes.length) {
@@ -3059,8 +3151,7 @@ function getScopeEndLine(
 	}
 	return Math.max(
 		getNodeEndLine(nodes[nodes.length - 1], lineOffset),
-		getNodeEndLine(heading, lineOffset),
-		lineOffset + lines.length - 1
+		getNodeEndLine(heading, lineOffset)
 	);
 }
 
@@ -3267,6 +3358,47 @@ function getRenderableKindPriority(
 	}
 }
 
+function dedupeEmbedsBySource(embeds: EmbedNode[]) {
+	const seen = new Set<string>();
+	const uniqueEmbeds: EmbedNode[] = [];
+	for (const embed of embeds) {
+		const key = `${embed.link}:${embed.startLine}:${embed.endLine}`;
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		uniqueEmbeds.push(embed);
+	}
+	return uniqueEmbeds;
+}
+
+function isEmbedInsideRenderable(
+	embed: EmbedNode,
+	renderable: Exclude<RenderableScopeItem, { kind: "frontmatter" }>
+) {
+	const { startLine, endLine } = getRenderableLineRange(renderable);
+	return embed.startLine >= startLine && embed.endLine <= endLine;
+}
+
+function getRenderableLineSpan(
+	renderable: Exclude<RenderableScopeItem, { kind: "frontmatter" }>
+) {
+	const { startLine, endLine } = getRenderableLineRange(renderable);
+	return Math.max(0, endLine - startLine);
+}
+
+function getRenderableLineRange(
+	renderable: Exclude<RenderableScopeItem, { kind: "frontmatter" }>
+) {
+	return {
+		startLine: renderable.startLine,
+		endLine:
+			renderable.kind === "section"
+				? renderable.item.endLine
+				: renderable.item.endLine
+	};
+}
+
 function getOrphanLayerLabel(orphan: OrphanNode) {
 	const firstMeaningfulLine = orphan.content
 		.split(/\r?\n/)
@@ -3278,8 +3410,15 @@ function getOrphanLayerLabel(orphan: OrphanNode) {
 	}
 
 	const headingMatch = firstMeaningfulLine.match(/^#{1,6}\s+(.*)$/);
-	const label = headingMatch?.[1] ?? firstMeaningfulLine;
+	const label = getDisplayLabelText(headingMatch?.[1] ?? firstMeaningfulLine);
 	return label.length > 34 ? `${label.slice(0, 31).trimEnd()}...` : label;
+}
+
+function mergeLayerChildren(
+	descendantChildren: LayerTreeNode[],
+	embedChildren: LayerTreeNode[]
+) {
+	return [...descendantChildren, ...embedChildren];
 }
 
 function getHeadingIcon(level: number) {
@@ -3331,8 +3470,28 @@ function getOrphanLayerIcon(orphan: OrphanNode) {
 }
 
 function getEmbedLayerLabel(embed: EmbedNode) {
-	const label = normalizeEmbedBreadcrumbLabel(embed.label || embed.original || embed.link);
+	const label = getDisplayLabelText(
+		embed.label || embed.original || normalizeEmbedBreadcrumbLabel(embed.link)
+	);
 	return label.length > 34 ? `${label.slice(0, 31).trimEnd()}...` : label;
+}
+
+function getDisplayLabelText(text: string) {
+	const normalized = text
+		.replace(/^!?\[\[([^\]|]+)\|([^\]]+)\]\]$/g, "$2")
+		.replace(/^!?\[\[([^\]]+)\]\]$/g, "$1")
+		.replace(/^!\[([^\]]*)\]\(([^)]+)\)$/g, "$1 $2")
+		.replace(/^\[([^\]]+)\]\(([^)]+)\)$/g, "$1")
+		.replace(/^\[\]\(([^)]+)\)$/g, "$1")
+		.replace(/[`*_~]/g, "")
+		.replace(/<([^>]+)>/g, "$1")
+		.trim();
+
+	return normalized.length ? normalized : "Untitled block";
+}
+
+function cssEscape(value: string) {
+	return window.CSS?.escape ? window.CSS.escape(value) : value.replace(/"/g, '\\"');
 }
 
 function applyItemFrame(element: HTMLElement, state: CanvasItemState) {

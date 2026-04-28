@@ -322,7 +322,7 @@
 }
 
 .arkidian-layer-row.is-current-scope {
-  background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+  background: transparent;
 }
 
 .arkidian-layer-row.is-selected {
