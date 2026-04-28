@@ -269,6 +269,8 @@ class ArkidianView extends ItemView {
 	private fittedScopeId: string | null = null;
 	private gridRenderFrame: number | null = null;
 	private resizeObserver: ResizeObserver | null = null;
+	private fileRefreshTimer: number | null = null;
+	private renderToken = 0;
 	private expandedLayerIds = new Set<string>();
 	private selectedItemId: string | null = null;
 	private selectedItemEl: HTMLElement | null = null;
@@ -407,7 +409,7 @@ class ArkidianView extends ItemView {
 					if (Date.now() < this.suppressFileRefreshUntil) {
 						return;
 					}
-					await this.renderCurrentFile();
+					this.queueFileRefresh();
 				}
 			})
 		);
@@ -420,6 +422,10 @@ class ArkidianView extends ItemView {
 		if (this.gridRenderFrame !== null) {
 			window.cancelAnimationFrame(this.gridRenderFrame);
 			this.gridRenderFrame = null;
+		}
+		if (this.fileRefreshTimer !== null) {
+			window.clearTimeout(this.fileRefreshTimer);
+			this.fileRefreshTimer = null;
 		}
 		this.resizeObserver?.disconnect();
 		this.resizeObserver = null;
@@ -453,17 +459,48 @@ class ArkidianView extends ItemView {
 		}
 	}
 
+	private queueFileRefresh() {
+		if (this.fileRefreshTimer !== null) {
+			window.clearTimeout(this.fileRefreshTimer);
+		}
+
+		this.fileRefreshTimer = window.setTimeout(() => {
+			this.fileRefreshTimer = null;
+			void this.renderCurrentFile();
+		}, 120);
+	}
+
+	private isRenderCurrent(token: number) {
+		return token === this.renderToken;
+	}
+
+	private swapStageContents(nextStage: HTMLElement) {
+		this.stageEl.replaceChildren();
+		while (nextStage.firstChild) {
+			this.stageEl.appendChild(nextStage.firstChild);
+		}
+	}
+
 	private async renderCurrentFile() {
+		const renderToken = ++this.renderToken;
 		this.clearSelectedItem();
-		this.stageEl.empty();
 		this.renderToolbar();
 
+		const nextStage = document.createElement("div");
+
 		if (!this.currentFile) {
-			this.renderEmptyState("Open a markdown file to populate the canvas.");
+			this.renderEmptyState(nextStage, "Open a markdown file to populate the canvas.");
+			if (!this.isRenderCurrent(renderToken)) {
+				return;
+			}
+			this.swapStageContents(nextStage);
 			return;
 		}
 
 		const source = await this.app.vault.read(this.currentFile);
+		if (!this.isRenderCurrent(renderToken)) {
+			return;
+		}
 		const parsed = parseMarkdownStructure(source);
 		this.parsedDocument = parsed;
 		if (!parsed.scopes[this.currentScopeId]) {
@@ -480,16 +517,29 @@ class ArkidianView extends ItemView {
 			layerPanelOrphans
 		);
 		this.embedMap = await this.buildEmbedMapForDocument();
+		if (!this.isRenderCurrent(renderToken)) {
+			return;
+		}
 		const renderableContexts = this.buildRenderableContexts(renderableItems);
 		const layerPanelContexts = this.buildRenderableContexts(layerPanelItems);
 		const meta = await this.readMeta(this.currentFile);
+		if (!this.isRenderCurrent(renderToken)) {
+			return;
+		}
 		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
 		const itemStates: CanvasItemState[] = [];
 		this.renderToolbar(scope);
 		this.renderLayerPanel(scope, layerPanelContexts);
 
 		if (!renderableContexts.length) {
-			this.renderEmptyState("This document has no visible markdown blocks yet.");
+			this.renderEmptyState(
+				nextStage,
+				"This document has no visible markdown blocks yet."
+			);
+			if (!this.isRenderCurrent(renderToken)) {
+				return;
+			}
+			this.swapStageContents(nextStage);
 			this.fitViewportToOriginIfNeeded();
 			return;
 		}
@@ -505,14 +555,32 @@ class ArkidianView extends ItemView {
 			const state = scopeMeta.items[renderable.id] ?? fallback;
 			itemStates.push(state);
 			if (renderable.kind === "frontmatter") {
-				await this.renderFrontmatterCard(renderable.item, state);
+				await this.renderFrontmatterCard(nextStage, renderable.item, state);
+				if (!this.isRenderCurrent(renderToken)) {
+					return;
+				}
 				continue;
 			}
 			if (renderable.kind === "section") {
-				await this.renderSectionCard(renderable.item, state, context.embeds);
+				await this.renderSectionCard(
+					nextStage,
+					renderable.item,
+					state,
+					context.embeds
+				);
+				if (!this.isRenderCurrent(renderToken)) {
+					return;
+				}
 				continue;
 			}
-			await this.renderOrphan(renderable.item, state, context.embeds);
+			await this.renderOrphan(nextStage, renderable.item, state, context.embeds);
+			if (!this.isRenderCurrent(renderToken)) {
+				return;
+			}
+		}
+
+		if (!this.isRenderCurrent(renderToken)) {
+			return;
 		}
 
 		meta.scopes[this.currentScopeId] = {
@@ -534,7 +602,11 @@ class ArkidianView extends ItemView {
 		await this.writeMeta({
 			...meta
 		});
+		if (!this.isRenderCurrent(renderToken)) {
+			return;
+		}
 
+		this.swapStageContents(nextStage);
 		this.fitViewportToItemsIfNeeded(itemStates, scopeMeta.zoom || 1);
 	}
 
@@ -1230,8 +1302,8 @@ class ArkidianView extends ItemView {
 		}
 	}
 
-	private renderEmptyState(message: string) {
-		const empty = this.stageEl.createDiv({ cls: "arkidian-empty" });
+	private renderEmptyState(stageEl: HTMLElement, message: string) {
+		const empty = stageEl.createDiv({ cls: "arkidian-empty" });
 		empty.setText(message);
 	}
 
@@ -1623,11 +1695,12 @@ class ArkidianView extends ItemView {
 	}
 
 	private async renderSectionCard(
+		stageEl: HTMLElement,
 		section: SectionNode,
 		state: CanvasItemState,
 		embeds: EmbedNode[]
 	) {
-		const card = this.stageEl.createDiv({ cls: "arkidian-card" });
+		const card = stageEl.createDiv({ cls: "arkidian-card" });
 		this.enableItemSelection(card, section.id);
 		applyItemFrame(card, state);
 
@@ -1661,11 +1734,12 @@ class ArkidianView extends ItemView {
 	}
 
 	private async renderOrphan(
+		stageEl: HTMLElement,
 		orphan: OrphanNode,
 		state: CanvasItemState,
 		embeds: EmbedNode[]
 	) {
-		const item = this.stageEl.createDiv({ cls: "arkidian-orphan" });
+		const item = stageEl.createDiv({ cls: "arkidian-orphan" });
 		this.enableItemSelection(item, orphan.id);
 		item.toggleClass("is-drillable", Boolean(orphan.childScopeId));
 		applyItemFrame(item, state);
@@ -1699,10 +1773,11 @@ class ArkidianView extends ItemView {
 	}
 
 	private async renderFrontmatterCard(
+		stageEl: HTMLElement,
 		frontmatter: FrontmatterItem,
 		state: CanvasItemState
 	) {
-		const card = this.stageEl.createDiv({
+		const card = stageEl.createDiv({
 			cls: "arkidian-orphan arkidian-frontmatter-card"
 		});
 		this.enableItemSelection(card, frontmatter.id);

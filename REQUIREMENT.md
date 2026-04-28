@@ -19,6 +19,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Direct editing inside cards is a later-stage feature.
 - YAML frontmatter is shown on the root canvas as an immediately editable property table card.
 - Changes in the source `.md` document must resync the canvas view.
+- Source-driven canvas refresh should avoid flashing an empty canvas between external file updates when possible.
 - Double-clicking a Shell opens the source note in a separate Obsidian window focused on that section.
 - Ctrl/Cmd-clicking a Shell enters that Shell's child canvas scope.
 - Ctrl/Cmd-clicking an orphan that contains its own heading hierarchy enters that orphan's child canvas scope.
