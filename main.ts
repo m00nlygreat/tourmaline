@@ -33,6 +33,9 @@ const MIN_SCROLLABLE_OVERFLOW = 2;
 const GRID_SPACING = 28;
 const GRID_DOT_RADIUS = 0.9;
 const MIN_GRID_SCREEN_SPACING = 14;
+const DEFAULT_LAYER_PANEL_WIDTH = 280;
+const MIN_LAYER_PANEL_WIDTH = 220;
+const MAX_LAYER_PANEL_WIDTH = 420;
 
 type CanvasItemState = {
 	id: string;
@@ -254,6 +257,7 @@ class ArkidianView extends ItemView {
 	private workspaceEl!: HTMLDivElement;
 	private layerPanelEl!: HTMLDivElement;
 	private layerPanelHeaderEl!: HTMLDivElement;
+	private layerPanelExpandAllEl!: HTMLDivElement;
 	private layerTreeEl!: HTMLDivElement;
 	private canvasEl!: HTMLDivElement;
 	private scrollEl!: HTMLDivElement;
@@ -275,6 +279,7 @@ class ArkidianView extends ItemView {
 	private renderToken = 0;
 	private expandedLayerIds = new Set<string>();
 	private isLayerPanelCollapsed = false;
+	private layerPanelWidth = DEFAULT_LAYER_PANEL_WIDTH;
 	private selectedItemId: string | null = null;
 	private selectedItemEl: HTMLElement | null = null;
 	private embedMap = new Map<string, EmbedNode[]>();
@@ -326,7 +331,21 @@ class ArkidianView extends ItemView {
 			cls: "arkidian-layer-panel-eyebrow",
 			text: "Layers"
 		});
-		const layerPanelToggle = createInteractiveControl(this.layerPanelHeaderEl, {
+		const layerPanelActions = this.layerPanelHeaderEl.createDiv({
+			cls: "arkidian-layer-panel-actions"
+		});
+		this.layerPanelExpandAllEl = createInteractiveControl(layerPanelActions, {
+			cls: "arkidian-layer-panel-toggle",
+			label: "Expand all headings"
+		});
+		setIcon(this.layerPanelExpandAllEl, "chevrons-down");
+		this.layerPanelExpandAllEl.addEventListener("click", () => {
+			if (this.layerPanelExpandAllEl.getAttribute("aria-disabled") === "true") {
+				return;
+			}
+			this.toggleAllLayerHeadings();
+		});
+		const layerPanelToggle = createInteractiveControl(layerPanelActions, {
 			cls: "arkidian-layer-panel-toggle",
 			label: "Collapse layer panel"
 		});
@@ -335,6 +354,10 @@ class ArkidianView extends ItemView {
 			this.isLayerPanelCollapsed = !this.isLayerPanelCollapsed;
 			this.syncLayerPanelPresentation();
 		});
+		const layerPanelResizeHandle = this.layerPanelEl.createDiv({
+			cls: "arkidian-layer-panel-resize-handle"
+		});
+		this.enableLayerPanelResizing(layerPanelResizeHandle);
 		this.layerTreeEl = this.layerPanelEl.createDiv({ cls: "arkidian-layer-tree" });
 		this.canvasEl = this.workspaceEl.createDiv({ cls: "arkidian-canvas" });
 		this.scrollEl = this.canvasEl.createDiv({ cls: "arkidian-scroll" });
@@ -814,10 +837,12 @@ class ArkidianView extends ItemView {
 				cls: "arkidian-layer-empty",
 				text: "No visible layers."
 			});
+			this.syncLayerHeadingTogglePresentation(tree);
 			return;
 		}
 
 		this.renderLayerTreeNodes(tree, this.layerTreeEl, 0);
+		this.syncLayerHeadingTogglePresentation(tree);
 	}
 
 	private rerenderCurrentLayerPanel() {
@@ -2336,8 +2361,15 @@ class ArkidianView extends ItemView {
 
 	private syncLayerPanelPresentation() {
 		this.layerPanelEl.toggleClass("is-collapsed", this.isLayerPanelCollapsed);
+		if (this.isLayerPanelCollapsed) {
+			this.layerPanelEl.style.width = "";
+			this.layerPanelEl.style.flexBasis = "";
+		} else {
+			this.layerPanelEl.style.width = `${this.layerPanelWidth}px`;
+			this.layerPanelEl.style.flexBasis = `${this.layerPanelWidth}px`;
+		}
 		const toggle = this.layerPanelHeaderEl.querySelector<HTMLElement>(
-			".arkidian-layer-panel-toggle"
+			".arkidian-layer-panel-actions .arkidian-layer-panel-toggle:last-child"
 		);
 		if (toggle) {
 			setIcon(
@@ -2349,6 +2381,94 @@ class ArkidianView extends ItemView {
 				this.isLayerPanelCollapsed ? "Expand layer panel" : "Collapse layer panel"
 			);
 		}
+		this.syncLayerHeadingTogglePresentation();
+	}
+
+	private enableLayerPanelResizing(handle: HTMLElement) {
+		let startX = 0;
+		let originWidth = this.layerPanelWidth;
+
+		const onPointerMove = (event: PointerEvent) => {
+			this.layerPanelWidth = clamp(
+				originWidth + event.clientX - startX,
+				MIN_LAYER_PANEL_WIDTH,
+				MAX_LAYER_PANEL_WIDTH
+			);
+			this.syncLayerPanelPresentation();
+		};
+
+		const onPointerUp = () => {
+			document.body.classList.remove("is-resizing-arkidian-layer-panel");
+			window.removeEventListener("pointermove", onPointerMove);
+			window.removeEventListener("pointerup", onPointerUp);
+		};
+
+		handle.addEventListener("pointerdown", (event) => {
+			if (this.isLayerPanelCollapsed || event.button !== 0) {
+				return;
+			}
+
+			event.preventDefault();
+			startX = event.clientX;
+			originWidth = this.layerPanelWidth;
+			document.body.classList.add("is-resizing-arkidian-layer-panel");
+			window.addEventListener("pointermove", onPointerMove);
+			window.addEventListener("pointerup", onPointerUp);
+		});
+	}
+
+	private toggleAllLayerHeadings() {
+		const tree = this.getCurrentLayerPanelTree();
+		if (!tree) {
+			return;
+		}
+
+		const expandableIds = getExpandableLayerNodeIds(tree);
+		const shouldExpand = expandableIds.some((id) => !this.expandedLayerIds.has(id));
+		if (shouldExpand) {
+			expandableIds.forEach((id) => this.expandedLayerIds.add(id));
+		} else {
+			expandableIds.forEach((id) => this.expandedLayerIds.delete(id));
+		}
+		this.rerenderCurrentLayerPanel();
+	}
+
+	private syncLayerHeadingTogglePresentation(tree = this.getCurrentLayerPanelTree()) {
+		if (!this.layerPanelExpandAllEl) {
+			return;
+		}
+
+		const expandableIds = tree ? getExpandableLayerNodeIds(tree) : [];
+		const hasCollapsed = expandableIds.some((id) => !this.expandedLayerIds.has(id));
+		const isDisabled = !expandableIds.length || this.isLayerPanelCollapsed;
+		setIcon(this.layerPanelExpandAllEl, hasCollapsed ? "chevrons-down" : "chevrons-up");
+		this.layerPanelExpandAllEl.setAttribute(
+			"aria-label",
+			hasCollapsed ? "Expand all headings" : "Collapse all headings"
+		);
+		setInteractiveDisabled(this.layerPanelExpandAllEl, isDisabled);
+	}
+
+	private getCurrentLayerPanelTree() {
+		if (!this.parsedDocument) {
+			return null;
+		}
+
+		const scope = this.parsedDocument.scopes[this.currentScopeId];
+		if (!scope) {
+			return null;
+		}
+
+		return this.buildLayerTree(
+			scope.id,
+			this.buildLayerPanelRenderableContexts(
+				this.getRenderableItems(
+					scope,
+					this.getFrontmatterItem(scope),
+					this.getLayerPanelOrphans(scope)
+				)
+			)
+		);
 	}
 
 	private enableLayerRowReordering(row: HTMLElement, node: LayerTreeNode) {
@@ -3419,6 +3539,18 @@ function mergeLayerChildren(
 	embedChildren: LayerTreeNode[]
 ) {
 	return [...descendantChildren, ...embedChildren];
+}
+
+function getExpandableLayerNodeIds(nodes: LayerTreeNode[]) {
+	const ids: string[] = [];
+	const visit = (node: LayerTreeNode) => {
+		if (node.children.length) {
+			ids.push(node.id);
+			node.children.forEach(visit);
+		}
+	};
+	nodes.forEach(visit);
+	return ids;
 }
 
 function getHeadingIcon(level: number) {

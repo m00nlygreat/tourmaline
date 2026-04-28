@@ -210,6 +210,7 @@
 }
 
 .arkidian-layer-panel {
+  position: relative;
   width: 280px;
   flex: 0 0 280px;
   display: flex;
@@ -235,6 +236,12 @@
   border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
 }
 
+.arkidian-layer-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .arkidian-layer-panel-eyebrow {
   display: block;
   font-size: 11px;
@@ -254,6 +261,11 @@
   cursor: pointer;
 }
 
+.arkidian-layer-panel-toggle.is-disabled {
+  opacity: 0.36;
+  cursor: default;
+}
+
 .arkidian-layer-panel-toggle svg {
   width: 14px;
   height: 14px;
@@ -270,6 +282,30 @@
 
 .arkidian-layer-panel.is-collapsed .arkidian-layer-tree {
   display: none;
+}
+
+.arkidian-layer-panel-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 5;
+  width: 6px;
+  cursor: col-resize;
+}
+
+.arkidian-layer-panel-resize-handle:hover,
+body.is-resizing-arkidian-layer-panel .arkidian-layer-panel-resize-handle {
+  background: color-mix(in srgb, var(--interactive-accent) 36%, transparent);
+}
+
+.arkidian-layer-panel.is-collapsed .arkidian-layer-panel-resize-handle {
+  display: none;
+}
+
+body.is-resizing-arkidian-layer-panel {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .arkidian-layer-tree {
@@ -561,15 +597,16 @@
   height: 100%;
   cursor: ew-resize;
   z-index: 2;
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.2;
+  pointer-events: auto;
   transition: opacity 120ms ease;
 }
 
+.arkidian-card:hover .arkidian-card-resize-handle,
+.arkidian-orphan:hover .arkidian-card-resize-handle,
 .arkidian-card.is-selected .arkidian-card-resize-handle,
 .arkidian-orphan.is-selected .arkidian-card-resize-handle {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .arkidian-card-resize-handle::after {

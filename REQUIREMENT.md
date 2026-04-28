@@ -54,7 +54,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Dragging inside a card should prioritize moving the card over native image drag behavior.
 - Card width and position are user-adjustable.
 - Adjusted card width is persisted in the sibling meta file and restored on reload.
-- Resize handles stay hidden until their element is selected.
+- Resize handles are available before selection and become more visible on hover or selection.
 - The canvas floor renders a simple dotted grid as a spatial reference.
 - The dotted grid is rendered on a dedicated canvas overlay layer instead of a CSS background.
 - Grid dot size remains fixed on screen while zoom only changes spacing between dots.
@@ -65,6 +65,8 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Breadcrumbs include the source-side file and scope chain when the current canvas was reached by entering an embed, without showing the raw embed syntax itself as a separate step.
 - A Figma-style layer panel sits on the left side of the view.
 - The layer panel can be collapsed and expanded from its header without leaving the canvas view.
+- The layer panel width can be adjusted within a constrained range by dragging its right edge.
+- The layer panel header includes a control to expand or collapse all currently visible heading groups.
 - The layer panel shows the current canvas scope's elements and their descendants as a nested tree.
 - The layer panel also shows current-level markdown embeds as separate non-expandable child nodes under the Shell or orphan that visually contains them, after that node's own child structure.
 - When a layer-panel orphan has embed child rows but no child scope structure, the panel shows the embed rows directly instead of an extra wrapper orphan.
