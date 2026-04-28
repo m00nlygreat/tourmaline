@@ -64,9 +64,11 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - The top toolbar shows breadcrumbs on the left and action buttons grouped on the right.
 - Breadcrumbs include the source-side file and scope chain when the current canvas was reached by entering an embed, without showing the raw embed syntax itself as a separate step.
 - A Figma-style layer panel sits on the left side of the view.
+- The layer panel can be collapsed and expanded from its header without leaving the canvas view.
 - The layer panel shows the current canvas scope's elements and their descendants as a nested tree.
 - The layer panel also shows markdown embeds as separate child nodes under the Shell or orphan that visually contains them.
 - Layer order follows the source document order instead of grouping Shells and Shell-less blocks separately.
+- Dragging reorderable layer rows inside the panel updates the source markdown block order in the current scope.
 - The layer panel should not repeat a Shell heading as both the Shell row and a child heading element.
 - Single-clicking a drillable layer only expands that layer's tree in the panel.
 - Double-clicking a layer opens its source block in the editor, matching canvas behavior.

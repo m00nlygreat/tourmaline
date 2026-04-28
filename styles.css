@@ -218,9 +218,19 @@
   border-right: 1px solid color-mix(in srgb, var(--background-modifier-border) 88%, transparent);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--background-secondary) 92%, transparent), color-mix(in srgb, var(--background-primary) 96%, transparent));
+  transition: width 140ms ease, flex-basis 140ms ease;
+}
+
+.arkidian-layer-panel.is-collapsed {
+  width: 44px;
+  flex-basis: 44px;
 }
 
 .arkidian-layer-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 12px 14px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
 }
@@ -231,6 +241,35 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-faint);
+}
+
+.arkidian-layer-panel-toggle {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.arkidian-layer-panel-toggle svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.1;
+}
+
+.arkidian-layer-panel.is-collapsed .arkidian-layer-panel-header {
+  padding-inline: 12px;
+}
+
+.arkidian-layer-panel.is-collapsed .arkidian-layer-panel-eyebrow {
+  display: none;
+}
+
+.arkidian-layer-panel.is-collapsed .arkidian-layer-tree {
+  display: none;
 }
 
 .arkidian-layer-tree {
@@ -293,6 +332,34 @@
 
 .arkidian-layer-row.is-selected:hover {
   background: color-mix(in srgb, var(--interactive-accent) 24%, transparent);
+}
+
+.arkidian-layer-row.is-dragging {
+  opacity: 0.45;
+}
+
+.arkidian-layer-row.is-drop-before,
+.arkidian-layer-row.is-drop-after {
+  position: relative;
+}
+
+.arkidian-layer-row.is-drop-before::before,
+.arkidian-layer-row.is-drop-after::after {
+  content: "";
+  position: absolute;
+  left: calc(10px + var(--arkidian-layer-depth, 0) * 16px);
+  right: 8px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+}
+
+.arkidian-layer-row.is-drop-before::before {
+  top: -1px;
+}
+
+.arkidian-layer-row.is-drop-after::after {
+  bottom: -1px;
 }
 
 .arkidian-layer-row.is-drillable .arkidian-layer-label {

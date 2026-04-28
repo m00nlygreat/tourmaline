@@ -134,6 +134,8 @@ type LayerTreeNode = {
 	icon: string;
 	kind: "frontmatter" | "section" | "orphan" | "embed";
 	startLine: number;
+	endLine?: number;
+	sourceScopeId?: string;
 	targetScopeId?: string;
 	targetFilePath?: string;
 	openLine?: number;
@@ -252,6 +254,7 @@ class ArkidianView extends ItemView {
 	private backButtonEl!: HTMLDivElement;
 	private workspaceEl!: HTMLDivElement;
 	private layerPanelEl!: HTMLDivElement;
+	private layerPanelHeaderEl!: HTMLDivElement;
 	private layerTreeEl!: HTMLDivElement;
 	private canvasEl!: HTMLDivElement;
 	private scrollEl!: HTMLDivElement;
@@ -272,10 +275,12 @@ class ArkidianView extends ItemView {
 	private fileRefreshTimer: number | null = null;
 	private renderToken = 0;
 	private expandedLayerIds = new Set<string>();
+	private isLayerPanelCollapsed = false;
 	private selectedItemId: string | null = null;
 	private selectedItemEl: HTMLElement | null = null;
 	private embedMap = new Map<string, EmbedNode[]>();
 	private sourceTrail: SourceTrailEntry[] = [];
+	private draggingLayerNodeId: string | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: ArkidianPlugin) {
 		super(leaf);
@@ -340,12 +345,21 @@ class ArkidianView extends ItemView {
 
 		this.workspaceEl = this.containerEl.createDiv({ cls: "arkidian-workspace" });
 		this.layerPanelEl = this.workspaceEl.createDiv({ cls: "arkidian-layer-panel" });
-		const layerPanelHeader = this.layerPanelEl.createDiv({
+		this.layerPanelHeaderEl = this.layerPanelEl.createDiv({
 			cls: "arkidian-layer-panel-header"
 		});
-		layerPanelHeader.createSpan({
+		this.layerPanelHeaderEl.createSpan({
 			cls: "arkidian-layer-panel-eyebrow",
 			text: "Layers"
+		});
+		const layerPanelToggle = createInteractiveControl(this.layerPanelHeaderEl, {
+			cls: "arkidian-layer-panel-toggle",
+			label: "Collapse layer panel"
+		});
+		setIcon(layerPanelToggle, "panel-left-close");
+		layerPanelToggle.addEventListener("click", () => {
+			this.isLayerPanelCollapsed = !this.isLayerPanelCollapsed;
+			this.syncLayerPanelPresentation();
 		});
 		this.layerTreeEl = this.layerPanelEl.createDiv({ cls: "arkidian-layer-tree" });
 		this.canvasEl = this.workspaceEl.createDiv({ cls: "arkidian-canvas" });
@@ -402,6 +416,7 @@ class ArkidianView extends ItemView {
 			this.scrollEl.removeClass("is-space-panning");
 		});
 		this.enableCanvasPanning();
+		this.syncLayerPanelPresentation();
 
 		this.registerEvent(
 			this.app.vault.on("modify", async (file) => {
@@ -742,7 +757,7 @@ class ArkidianView extends ItemView {
 			text: `${renderableItems.length} items`
 		});
 
-		const tree = this.buildLayerTree(renderableItems);
+		const tree = this.buildLayerTree(scope.id, renderableItems);
 		if (!tree.length) {
 			this.layerTreeEl.createDiv({
 				cls: "arkidian-layer-empty",
@@ -776,7 +791,10 @@ class ArkidianView extends ItemView {
 		);
 	}
 
-	private buildLayerTree(renderableItems: RenderableItemContext[]): LayerTreeNode[] {
+	private buildLayerTree(
+		scopeId: string,
+		renderableItems: RenderableItemContext[]
+	): LayerTreeNode[] {
 		return renderableItems.map(({ renderable, embeds }) => {
 			if (renderable.kind === "frontmatter") {
 				return {
@@ -785,6 +803,7 @@ class ArkidianView extends ItemView {
 					icon: "sliders-horizontal",
 					kind: renderable.kind,
 					startLine: renderable.startLine,
+					sourceScopeId: scopeId,
 					openLine: 0,
 					children: []
 				};
@@ -797,6 +816,8 @@ class ArkidianView extends ItemView {
 					icon: getHeadingIcon(renderable.item.level),
 					kind: renderable.kind,
 					startLine: renderable.startLine,
+					endLine: renderable.item.endLine,
+					sourceScopeId: scopeId,
 					targetScopeId: renderable.item.scopeId,
 					openLine: renderable.item.startLine,
 					children: [
@@ -812,6 +833,8 @@ class ArkidianView extends ItemView {
 				icon: getOrphanLayerIcon(renderable.item),
 				kind: renderable.kind,
 				startLine: renderable.startLine,
+				endLine: renderable.item.endLine,
+				sourceScopeId: scopeId,
 				targetScopeId: renderable.item.childScopeId,
 				openLine: renderable.item.startLine,
 				children: [
@@ -835,6 +858,7 @@ class ArkidianView extends ItemView {
 		}
 
 		return this.buildLayerTree(
+			scope.id,
 			this.buildRenderableContexts(
 				this.getRenderableItems(scope, null, this.getLayerPanelOrphans(scope))
 			)
@@ -848,6 +872,8 @@ class ArkidianView extends ItemView {
 			icon: "picture-in-picture-2",
 			kind: "embed",
 			startLine: embed.startLine,
+			endLine: embed.endLine,
+			sourceScopeId: embed.sourceScopeId,
 			targetScopeId: embed.targetScopeId ?? undefined,
 			targetFilePath: embed.targetFilePath ?? undefined,
 			openLine: embed.targetLine ?? undefined,
@@ -978,6 +1004,7 @@ class ArkidianView extends ItemView {
 			const row = item.createDiv({
 				cls: "arkidian-layer-row"
 			});
+			row.dataset.layerNodeId = node.id;
 			row.style.setProperty("--arkidian-layer-depth", `${depth}`);
 			row.toggleClass("is-current-scope", node.targetScopeId === this.currentScopeId);
 			row.toggleClass(
@@ -985,6 +1012,7 @@ class ArkidianView extends ItemView {
 				Boolean(node.targetScopeId || node.targetFilePath)
 			);
 			row.toggleClass("is-selected", node.id === this.selectedItemId);
+			this.enableLayerRowReordering(row, node);
 
 			const isExpanded =
 				node.children.length > 0 && this.expandedLayerIds.has(node.id);
@@ -2270,6 +2298,268 @@ class ArkidianView extends ItemView {
 			console.error("Arkidian: failed to open source in popout", error);
 			new Notice("Could not open this source block in a new editor window.");
 		}
+	}
+
+	private syncLayerPanelPresentation() {
+		this.layerPanelEl.toggleClass("is-collapsed", this.isLayerPanelCollapsed);
+		const toggle = this.layerPanelHeaderEl.querySelector<HTMLElement>(
+			".arkidian-layer-panel-toggle"
+		);
+		if (toggle) {
+			setIcon(
+				toggle,
+				this.isLayerPanelCollapsed ? "panel-left-open" : "panel-left-close"
+			);
+			toggle.setAttribute(
+				"aria-label",
+				this.isLayerPanelCollapsed ? "Expand layer panel" : "Collapse layer panel"
+			);
+		}
+	}
+
+	private enableLayerRowReordering(row: HTMLElement, node: LayerTreeNode) {
+		if (!this.canReorderLayerNode(node)) {
+			return;
+		}
+
+		row.draggable = true;
+		row.addEventListener("dragstart", (event) => {
+			this.draggingLayerNodeId = node.id;
+			row.addClass("is-dragging");
+			event.dataTransfer?.setData("text/plain", node.id);
+			if (event.dataTransfer) {
+				event.dataTransfer.effectAllowed = "move";
+			}
+		});
+		row.addEventListener("dragend", () => {
+			this.draggingLayerNodeId = null;
+			row.removeClass("is-dragging");
+			this.clearLayerDropIndicators();
+		});
+		row.addEventListener("dragover", (event) => {
+			const position = this.getLayerDropPosition(row, event);
+			if (!position || !this.canDropLayerNode(this.draggingLayerNodeId, node, position)) {
+				return;
+			}
+			event.preventDefault();
+			if (event.dataTransfer) {
+				event.dataTransfer.dropEffect = "move";
+			}
+			this.showLayerDropIndicator(row, position);
+		});
+		row.addEventListener("dragleave", (event) => {
+			const nextTarget = event.relatedTarget;
+			if (nextTarget instanceof Node && row.contains(nextTarget)) {
+				return;
+			}
+			row.removeClass("is-drop-before");
+			row.removeClass("is-drop-after");
+		});
+		row.addEventListener("drop", (event) => {
+			const position = this.getLayerDropPosition(row, event);
+			if (!position || !this.canDropLayerNode(this.draggingLayerNodeId, node, position)) {
+				return;
+			}
+			event.preventDefault();
+			this.clearLayerDropIndicators();
+			const draggedNodeId = this.draggingLayerNodeId;
+			this.draggingLayerNodeId = null;
+			if (!draggedNodeId) {
+				return;
+			}
+			void this.moveLayerNode(draggedNodeId, node.id, position);
+		});
+	}
+
+	private canReorderLayerNode(node: LayerTreeNode) {
+		if (node.kind === "frontmatter" || node.kind === "embed") {
+			return false;
+		}
+		if (
+			node.id === "orphan:scope:root:file-title" ||
+			node.id.endsWith(":scope-heading")
+		) {
+			return false;
+		}
+		return Boolean(node.sourceScopeId) && typeof node.startLine === "number";
+	}
+
+	private getLayerDropPosition(
+		row: HTMLElement,
+		event: DragEvent
+	): "before" | "after" | null {
+		const rect = row.getBoundingClientRect();
+		if (!rect.height) {
+			return null;
+		}
+		return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+	}
+
+	private canDropLayerNode(
+		draggedNodeId: string | null,
+		targetNode: LayerTreeNode,
+		position: "before" | "after"
+	) {
+		if (!draggedNodeId || draggedNodeId === targetNode.id || !this.parsedDocument) {
+			return false;
+		}
+
+		const dragged = this.findLayerNodeById(draggedNodeId);
+		if (!dragged || !this.canReorderLayerNode(dragged) || !this.canReorderLayerNode(targetNode)) {
+			return false;
+		}
+		if (dragged.sourceScopeId !== targetNode.sourceScopeId) {
+			return false;
+		}
+
+		const movableNodes = this.getMovableLayerNodesForScope(dragged.sourceScopeId ?? "");
+		const draggedIndex = movableNodes.findIndex((node) => node.id === dragged.id);
+		const targetIndex = movableNodes.findIndex((node) => node.id === targetNode.id);
+		if (draggedIndex === -1 || targetIndex === -1) {
+			return false;
+		}
+		if (position === "before" && draggedIndex === targetIndex - 1) {
+			return false;
+		}
+		if (position === "after" && draggedIndex === targetIndex + 1) {
+			return false;
+		}
+		return true;
+	}
+
+	private showLayerDropIndicator(row: HTMLElement, position: "before" | "after") {
+		this.clearLayerDropIndicators();
+		row.addClass(position === "before" ? "is-drop-before" : "is-drop-after");
+	}
+
+	private clearLayerDropIndicators() {
+		this.layerTreeEl
+			.querySelectorAll(".arkidian-layer-row.is-drop-before, .arkidian-layer-row.is-drop-after")
+			.forEach((row) => {
+				row.removeClass("is-drop-before");
+				row.removeClass("is-drop-after");
+			});
+	}
+
+	private findLayerNodeById(nodeId: string) {
+		if (!this.parsedDocument) {
+			return null;
+		}
+
+		const scope = this.parsedDocument.scopes[this.currentScopeId];
+		if (!scope) {
+			return null;
+		}
+
+		const visit = (nodes: LayerTreeNode[]): LayerTreeNode | null => {
+			for (const node of nodes) {
+				if (node.id === nodeId) {
+					return node;
+				}
+				const child = visit(node.children);
+				if (child) {
+					return child;
+				}
+			}
+			return null;
+		};
+
+		return visit(
+			this.buildLayerTree(
+				scope.id,
+				this.buildRenderableContexts(
+					this.getRenderableItems(
+						scope,
+						this.getFrontmatterItem(scope),
+						this.getLayerPanelOrphans(scope)
+					)
+				)
+			)
+		);
+	}
+
+	private getMovableLayerNodesForScope(scopeId: string) {
+		if (!this.parsedDocument) {
+			return [];
+		}
+
+		const scope = this.parsedDocument.scopes[scopeId];
+		if (!scope) {
+			return [];
+		}
+
+		return this.buildLayerTree(
+			scopeId,
+			this.buildRenderableContexts(
+				this.getRenderableItems(scope, this.getFrontmatterItem(scope), this.getLayerPanelOrphans(scope))
+			)
+		).filter((node) => this.canReorderLayerNode(node));
+	}
+
+	private async moveLayerNode(
+		draggedNodeId: string,
+		targetNodeId: string,
+		position: "before" | "after"
+	) {
+		if (!this.currentFile || !this.parsedDocument) {
+			return;
+		}
+
+		const dragged = this.findLayerNodeById(draggedNodeId);
+		const target = this.findLayerNodeById(targetNodeId);
+		const sourceScopeId = dragged?.sourceScopeId;
+		if (!dragged || !target || !sourceScopeId || sourceScopeId !== target.sourceScopeId) {
+			return;
+		}
+
+		const movableNodes = this.getMovableLayerNodesForScope(sourceScopeId);
+		const draggedIndex = movableNodes.findIndex((node) => node.id === draggedNodeId);
+		const targetIndex = movableNodes.findIndex((node) => node.id === targetNodeId);
+		if (draggedIndex === -1 || targetIndex === -1) {
+			return;
+		}
+
+		const latest = await this.app.vault.read(this.currentFile);
+		const lines = latest.split(/\r?\n/);
+		const segments = movableNodes.map((node, index) => ({
+			id: node.id,
+			startLine: node.startLine,
+			endLine:
+				index < movableNodes.length - 1
+					? movableNodes[index + 1].startLine - 1
+					: node.endLine ?? node.startLine
+		}));
+		const draggedSegment = segments[draggedIndex];
+		const targetSegment = segments[targetIndex];
+		if (!draggedSegment || !targetSegment) {
+			return;
+		}
+
+		const block = lines.slice(draggedSegment.startLine, draggedSegment.endLine + 1);
+		const remainingLines = [
+			...lines.slice(0, draggedSegment.startLine),
+			...lines.slice(draggedSegment.endLine + 1)
+		];
+		const blockLength = draggedSegment.endLine - draggedSegment.startLine + 1;
+		let insertLine =
+			position === "before"
+				? targetSegment.startLine
+				: targetSegment.endLine + 1;
+		if (insertLine > draggedSegment.startLine) {
+			insertLine -= blockLength;
+		}
+		insertLine = clamp(insertLine, 0, remainingLines.length);
+
+		const nextLines = [
+			...remainingLines.slice(0, insertLine),
+			...block,
+			...remainingLines.slice(insertLine)
+		];
+
+		this.clearSelectedItem();
+		this.suppressFileRefreshUntil = Date.now() + 800;
+		await this.app.vault.modify(this.currentFile, nextLines.join("\n"));
+		await this.renderCurrentFile();
 	}
 
 	private async createHeadingAtCurrentScope() {
