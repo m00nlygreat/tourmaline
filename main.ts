@@ -251,7 +251,6 @@ class ArkidianView extends ItemView {
 	private parsedDocument: ParsedDocument | null = null;
 	private toolbarBreadcrumbsEl!: HTMLDivElement;
 	private toolbarActionsEl!: HTMLDivElement;
-	private backButtonEl!: HTMLDivElement;
 	private workspaceEl!: HTMLDivElement;
 	private layerPanelEl!: HTMLDivElement;
 	private layerPanelHeaderEl!: HTMLDivElement;
@@ -308,13 +307,6 @@ class ArkidianView extends ItemView {
 			cls: "arkidian-toolbar-breadcrumbs"
 		});
 		this.toolbarActionsEl = toolbar.createDiv({ cls: "arkidian-toolbar-actions" });
-		this.backButtonEl = createInteractiveControl(this.toolbarActionsEl, {
-			cls: "arkidian-toolbar-control",
-			text: "Back"
-		});
-		this.backButtonEl.addEventListener("click", () => {
-			void this.navigateBack();
-		});
 		const refreshButton = createInteractiveControl(this.toolbarActionsEl, {
 			cls: "arkidian-toolbar-control",
 			text: "Refresh"
@@ -323,24 +315,6 @@ class ArkidianView extends ItemView {
 			this.fittedFilePath = null;
 			this.fittedScopeId = null;
 			void this.renderCurrentFile();
-		});
-
-		const openActiveButton = createInteractiveControl(this.toolbarActionsEl, {
-			cls: "arkidian-toolbar-control",
-			text: "Use Active File"
-		});
-		openActiveButton.addEventListener("click", async () => {
-			const file = this.app.workspace.getActiveFile();
-			if (!file || file.extension !== "md") {
-				new Notice("Active file is not a markdown file.");
-				return;
-			}
-			this.currentFile = file;
-			this.fittedFilePath = null;
-			this.currentScopeId = "scope:root";
-			this.sourceTrail = [];
-			this.fittedScopeId = null;
-			await this.renderCurrentFile();
 		});
 
 		this.workspaceEl = this.containerEl.createDiv({ cls: "arkidian-workspace" });
@@ -1130,38 +1104,6 @@ class ArkidianView extends ItemView {
 		return null;
 	}
 
-	private canNavigateBack() {
-		return Boolean(
-			(this.parsedDocument &&
-				getParentScopeId(this.currentScopeId) &&
-				this.parsedDocument.scopes[getParentScopeId(this.currentScopeId) ?? ""]) ||
-				this.sourceTrail.length
-		);
-	}
-
-	private async navigateBack() {
-		if (this.parsedDocument) {
-			const parentScopeId = getParentScopeId(this.currentScopeId);
-			if (parentScopeId && this.parsedDocument.scopes[parentScopeId]) {
-				this.currentScopeId = parentScopeId;
-				this.fittedScopeId = null;
-				await this.renderCurrentFile();
-				return;
-			}
-		}
-
-		const previousTrail = this.sourceTrail[this.sourceTrail.length - 1];
-		if (!previousTrail) {
-			return;
-		}
-
-		this.sourceTrail = this.sourceTrail.slice(0, -1);
-		await this.openCanvasLocation(
-			previousTrail.sourceFilePath,
-			previousTrail.sourceScopeId
-		);
-	}
-
 	private async openTrailLocation(
 		filePath: string,
 		scopeId: string,
@@ -1275,7 +1217,6 @@ class ArkidianView extends ItemView {
 			}
 		});
 
-		setInteractiveDisabled(this.backButtonEl, !this.canNavigateBack());
 	}
 
 	private getFrontmatterValues(file: TFile, metadataCache: MetadataCache) {
