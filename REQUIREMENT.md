@@ -25,6 +25,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Ctrl/Cmd-clicking an orphan that contains its own heading hierarchy enters that orphan's child canvas scope.
 - Markdown embeds remain visually in-flow inside their parent Shell or orphan preview instead of becoming separate floating cards.
 - Markdown embeds are still treated as independently selectable nodes for interaction, navigation, and layer management.
+- Markdown image embeds rendered as plain images are selectable as embed nodes too.
 - Ctrl/Cmd-clicking an embed enters the embedded target in the canvas when that target can be resolved.
 - Double-clicking an embed opens the embedded source note in a separate Obsidian window focused on the embedded target.
 - If the Zoom plugin is installed, the opened editor should zoom into the clicked heading section instead of showing the whole note.

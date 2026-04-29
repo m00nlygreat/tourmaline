@@ -2245,11 +2245,7 @@ class ArkidianView extends ItemView {
 	}
 
 	private decorateRenderedEmbeds(container: HTMLElement, embeds: EmbedNode[]) {
-		const renderedEmbeds = Array.from(
-			container.querySelectorAll<HTMLElement>(
-				".internal-embed, .markdown-embed, .image-embed, .media-embed"
-			)
-		);
+		const renderedEmbeds = getRenderedEmbedElements(container);
 		renderedEmbeds.forEach((element, index) => {
 			const embed = embeds[index];
 			if (!embed) {
@@ -3724,6 +3720,33 @@ function shouldIgnoreCardActivation(target: EventTarget | null) {
 			Boolean(target.closest("[data-embed-id]")) ||
 			isTypingTarget(target))
 	);
+}
+
+function getRenderedEmbedElements(container: HTMLElement) {
+	const embedSelector = ".internal-embed, .markdown-embed, .image-embed, .media-embed";
+	const embedContainers = Array.from(
+		container.querySelectorAll<HTMLElement>(embedSelector)
+	).filter((element) => !element.parentElement?.closest(embedSelector));
+	const standaloneImages = Array.from(
+		container.querySelectorAll<HTMLImageElement>("img")
+	).filter(
+		(image) =>
+			!image.closest(embedSelector) &&
+			!embedContainers.some((element) => element.contains(image))
+	);
+
+	return [...embedContainers, ...standaloneImages].sort(
+		(a, b) => compareDocumentPosition(a, b)
+	);
+}
+
+function compareDocumentPosition(a: HTMLElement, b: HTMLElement) {
+	if (a === b) {
+		return 0;
+	}
+	return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING
+		? 1
+		: -1;
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
