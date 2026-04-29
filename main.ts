@@ -2267,6 +2267,7 @@ class ArkidianView extends ItemView {
 				if (this.isSpacePressed || event.button !== 0) {
 					return;
 				}
+				event.stopPropagation();
 				this.selectItem(embed.id, element);
 			}, true);
 			element.addEventListener("click", (event) => {

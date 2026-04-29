@@ -52,6 +52,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - The selected canvas element is also highlighted in the layer panel.
 - `Delete` and `Backspace` act on the currently selected canvas item when focus is not inside a text input.
 - Selected embeds inside a preview are also highlighted in the layer panel using the same shared selection state.
+- Selectable embeds inside a preview show a hover outline before selection.
 - Dragging inside a card should prioritize moving the card over native image drag behavior.
 - Card width and position are user-adjustable.
 - Adjusted card width is persisted in the sibling meta file and restored on reload.

@@ -666,13 +666,14 @@ body.is-resizing-arkidian-layer-panel {
   border-radius: 0;
   outline: 1px solid transparent;
   outline-offset: 2px;
+  cursor: pointer;
   transition:
     outline-color 120ms ease,
     outline-offset 120ms ease;
 }
 
 .arkidian-selectable-embed:hover {
-  outline-color: transparent;
+  outline-color: color-mix(in srgb, var(--interactive-accent) 42%, transparent);
 }
 
 .arkidian-selectable-embed.is-selected,
