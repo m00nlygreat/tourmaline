@@ -50,6 +50,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Cards and orphan elements support selection and repositioning.
 - Selected canvas elements are highlighted with the accent color on their outline.
 - The selected canvas element is also highlighted in the layer panel.
+- Selecting a canvas element opens its containing layer-panel path when that path is folded.
 - `Delete` and `Backspace` act on the currently selected canvas item when focus is not inside a text input.
 - Selected embeds inside a preview are also highlighted in the layer panel using the same shared selection state.
 - Selectable embeds inside a preview show a hover outline before selection.
@@ -75,6 +76,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - When a layer-panel orphan mixes regular Markdown content with embeds and has no child scope structure, the panel shows the regular Markdown row and embed rows as siblings in source order.
 - Each markdown embed appears once in the layer panel under the nearest visible source item that contains its source line.
 - Layer order follows the source document order instead of grouping Shells and Shell-less blocks separately.
+- Selecting a layer row pans and zooms the canvas to show the selected canvas element.
 - Dragging reorderable layer rows inside the panel updates the source markdown block order in the current scope.
 - The layer panel should not repeat a Shell heading as both the Shell row and a child heading element.
 - Single-clicking a drillable layer only expands that layer's tree in the panel.

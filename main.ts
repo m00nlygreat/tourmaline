@@ -1158,7 +1158,7 @@ class ArkidianView extends ItemView {
 			}
 
 			labelButton.addEventListener("click", (event) => {
-				this.selectItemById(node.id);
+				this.selectItemById(node.id, { revealOnCanvas: true });
 				if (event.metaKey || event.ctrlKey) {
 					void this.enterLayerNode(node);
 					return;
@@ -2060,10 +2060,27 @@ class ArkidianView extends ItemView {
 		});
 	}
 
-	private selectItem(itemId: string, element: HTMLElement) {
+	private selectItem(
+		itemId: string,
+		element: HTMLElement,
+		options: { revealInLayer?: boolean; revealOnCanvas?: boolean } = {}
+	) {
+		const shouldRevealInLayer = options.revealInLayer ?? true;
+		const shouldRevealOnCanvas = options.revealOnCanvas ?? false;
+		if (shouldRevealInLayer && this.isLayerPanelCollapsed) {
+			this.isLayerPanelCollapsed = false;
+			this.syncLayerPanelPresentation();
+		}
+		if (shouldRevealInLayer) {
+			this.expandLayerPathToItem(itemId);
+		}
 		if (this.selectedItemId === itemId && this.selectedItemEl === element) {
 			element.addClass("is-selected");
 			this.rerenderCurrentLayerPanel();
+			this.revealSelectedLayerRow();
+			if (shouldRevealOnCanvas) {
+				this.revealCanvasElement(element);
+			}
 			return;
 		}
 
@@ -2072,20 +2089,97 @@ class ArkidianView extends ItemView {
 		this.selectedItemEl = element;
 		element.addClass("is-selected");
 		this.rerenderCurrentLayerPanel();
+		this.revealSelectedLayerRow();
+		if (shouldRevealOnCanvas) {
+			this.revealCanvasElement(element);
+		}
 	}
 
-	private selectItemById(itemId: string) {
+	private selectItemById(
+		itemId: string,
+		options: { revealOnCanvas?: boolean } = {}
+	) {
 		const element =
 			this.stageEl.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`) ??
 			this.findRenderedEmbedElement(itemId);
+		if (this.isLayerPanelCollapsed) {
+			this.isLayerPanelCollapsed = false;
+			this.syncLayerPanelPresentation();
+		}
+		this.expandLayerPathToItem(itemId);
 		if (!element) {
 			this.selectedItemEl?.removeClass("is-selected");
 			this.selectedItemId = itemId;
 			this.selectedItemEl = null;
 			this.rerenderCurrentLayerPanel();
+			this.revealSelectedLayerRow();
 			return;
 		}
-		this.selectItem(itemId, element);
+		this.selectItem(itemId, element, {
+			revealInLayer: false,
+			revealOnCanvas: options.revealOnCanvas ?? false
+		});
+	}
+
+	private expandLayerPathToItem(itemId: string) {
+		const tree = this.getCurrentLayerPanelTree();
+		if (!tree) {
+			return false;
+		}
+
+		const path = findLayerNodePathIds(tree, itemId);
+		if (!path.length) {
+			return false;
+		}
+
+		let changed = false;
+		path.slice(0, -1).forEach((id) => {
+			if (!this.expandedLayerIds.has(id)) {
+				this.expandedLayerIds.add(id);
+				changed = true;
+			}
+		});
+		return changed;
+	}
+
+	private revealSelectedLayerRow() {
+		const selectedItemId = this.selectedItemId;
+		if (!selectedItemId) {
+			return;
+		}
+
+		window.requestAnimationFrame(() => {
+			const row = this.layerTreeEl.querySelector<HTMLElement>(
+				`.arkidian-layer-row[data-layer-node-id="${cssEscape(selectedItemId)}"]`
+			);
+			row?.scrollIntoView({ block: "nearest" });
+		});
+	}
+
+	private revealCanvasElement(element: HTMLElement) {
+		this.runWhenCanvasReady(() => {
+			const rect = element.getBoundingClientRect();
+			const stageRect = this.stageViewportEl.getBoundingClientRect();
+			if (!rect.width || !rect.height || !stageRect.width || !stageRect.height) {
+				return;
+			}
+
+			const stageX = (rect.left + rect.width / 2 - stageRect.left) / this.zoom;
+			const stageY = (rect.top + rect.height / 2 - stageRect.top) / this.zoom;
+			const nextZoom = clamp(Math.max(this.zoom, 1), this.getMinZoom(), MAX_ZOOM);
+			if (nextZoom !== this.zoom) {
+				this.zoom = nextZoom;
+				this.syncStageZoom();
+				this.queueZoomSave();
+			}
+			this.positionViewportAroundStagePoint(
+				stageX,
+				stageY,
+				this.scrollEl.clientWidth / 2,
+				this.scrollEl.clientHeight / 2
+			);
+			this.scheduleGridRender();
+		});
 	}
 
 	private findRenderedEmbedElement(embedId: string) {
@@ -3585,6 +3679,31 @@ function getExpandableLayerNodeIds(nodes: LayerTreeNode[]) {
 	};
 	nodes.forEach(visit);
 	return ids;
+}
+
+function findLayerNodePathIds(nodes: LayerTreeNode[], targetId: string) {
+	const visit = (node: LayerTreeNode, path: string[]): string[] | null => {
+		const nextPath = [...path, node.id];
+		if (node.id === targetId) {
+			return nextPath;
+		}
+
+		for (const child of node.children) {
+			const match = visit(child, nextPath);
+			if (match) {
+				return match;
+			}
+		}
+		return null;
+	};
+
+	for (const node of nodes) {
+		const match = visit(node, []);
+		if (match) {
+			return match;
+		}
+	}
+	return [];
 }
 
 function getHeadingIcon(level: number) {
