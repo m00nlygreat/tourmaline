@@ -69,7 +69,8 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - The layer panel header includes a control to expand or collapse all currently visible heading groups.
 - The layer panel shows the current canvas scope's elements and their descendants as a nested tree.
 - The layer panel also shows current-level markdown embeds as separate non-expandable child nodes under the Shell or orphan that visually contains them, after that node's own child structure.
-- When a layer-panel orphan has embed child rows but no child scope structure, the panel shows the embed rows directly instead of an extra wrapper orphan.
+- When a layer-panel orphan contains only embeds and no child scope structure, the panel shows the embed rows directly instead of an extra wrapper orphan.
+- When a layer-panel orphan mixes regular Markdown content with embeds and has no child scope structure, the panel shows the regular Markdown row and embed rows as siblings in source order.
 - Each markdown embed appears once in the layer panel under the nearest visible source item that contains its source line.
 - Layer order follows the source document order instead of grouping Shells and Shell-less blocks separately.
 - Dragging reorderable layer rows inside the panel updates the source markdown block order in the current scope.
@@ -78,7 +79,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Double-clicking a layer opens its source block in the editor, matching canvas behavior.
 - Ctrl/Cmd-clicking a drillable layer enters that child canvas scope, matching canvas behavior.
 - Tree nodes can be folded and expanded with `>` and `v` controls.
-- Layer rows use source-like glyphs such as `##`, `>`, and `-` instead of type pills.
+- Layer row labels show readable content without Markdown syntax markers such as heading hashes, list bullets, ordered-list numbers, or link markup.
 - Layer rows should prefer built-in iconography for toggles and content type markers when available.
 - All Shell rows start collapsed by default in the layer panel.
 

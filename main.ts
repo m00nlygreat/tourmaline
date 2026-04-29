@@ -910,7 +910,25 @@ class ArkidianView extends ItemView {
 				? this.buildDescendantLayerTree(renderable.item.childScopeId)
 				: [];
 			if (embedChildren.length && !descendantChildren.length) {
-				return embedChildren;
+				if (shouldFlattenOrphanLayerEmbeds(renderable.item, embeds)) {
+					return embedChildren;
+				}
+
+				return [
+					{
+						id: renderable.id,
+						label: getOrphanLayerLabel(renderable.item),
+						icon: getOrphanLayerIcon(renderable.item),
+						kind: renderable.kind,
+						startLine: renderable.startLine,
+						endLine: renderable.item.endLine,
+						sourceScopeId: scopeId,
+						targetScopeId: renderable.item.childScopeId,
+						openLine: renderable.item.startLine,
+						children: []
+					},
+					...embedChildren
+				].sort((a, b) => a.startLine - b.startLine);
 			}
 			return [{
 				id: renderable.id,
@@ -2061,7 +2079,10 @@ class ArkidianView extends ItemView {
 			this.stageEl.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`) ??
 			this.findRenderedEmbedElement(itemId);
 		if (!element) {
-			this.clearSelectedItem();
+			this.selectedItemEl?.removeClass("is-selected");
+			this.selectedItemId = itemId;
+			this.selectedItemEl = null;
+			this.rerenderCurrentLayerPanel();
 			return;
 		}
 		this.selectItem(itemId, element);
@@ -3518,6 +3539,23 @@ function getRenderableLineRange(
 	};
 }
 
+function shouldFlattenOrphanLayerEmbeds(orphan: OrphanNode, embeds: EmbedNode[]) {
+	if (!embeds.length) {
+		return false;
+	}
+
+	const lines = orphan.content.split(/\r?\n/);
+	for (const embed of embeds) {
+		const start = Math.max(0, embed.startLine - orphan.startLine);
+		const end = Math.min(lines.length - 1, embed.endLine - orphan.startLine);
+		for (let index = start; index <= end; index += 1) {
+			lines[index] = "";
+		}
+	}
+
+	return lines.every((line) => line.trim().length === 0);
+}
+
 function getOrphanLayerLabel(orphan: OrphanNode) {
 	const firstMeaningfulLine = orphan.content
 		.split(/\r?\n/)
@@ -3614,6 +3652,7 @@ function getDisplayLabelText(text: string) {
 		.replace(/^!\[([^\]]*)\]\(([^)]+)\)$/g, "$1 $2")
 		.replace(/^\[([^\]]+)\]\(([^)]+)\)$/g, "$1")
 		.replace(/^\[\]\(([^)]+)\)$/g, "$1")
+		.replace(/^(?:[-*+]|\d+[.)])\s+/, "")
 		.replace(/[`*_~]/g, "")
 		.replace(/<([^>]+)>/g, "$1")
 		.trim();
