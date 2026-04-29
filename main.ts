@@ -258,6 +258,7 @@ class ArkidianView extends ItemView {
 	private layerPanelEl!: HTMLDivElement;
 	private layerPanelHeaderEl!: HTMLDivElement;
 	private layerPanelExpandAllEl!: HTMLDivElement;
+	private layerPanelToggleEl!: HTMLDivElement;
 	private layerTreeEl!: HTMLDivElement;
 	private canvasEl!: HTMLDivElement;
 	private scrollEl!: HTMLDivElement;
@@ -345,12 +346,12 @@ class ArkidianView extends ItemView {
 			}
 			this.toggleAllLayerHeadings();
 		});
-		const layerPanelToggle = createInteractiveControl(layerPanelActions, {
+		this.layerPanelToggleEl = createInteractiveControl(layerPanelActions, {
 			cls: "arkidian-layer-panel-toggle",
 			label: "Collapse layer panel"
 		});
-		setIcon(layerPanelToggle, "panel-left-close");
-		layerPanelToggle.addEventListener("click", () => {
+		setIcon(this.layerPanelToggleEl, "panel-left-close");
+		this.layerPanelToggleEl.addEventListener("click", () => {
 			this.isLayerPanelCollapsed = !this.isLayerPanelCollapsed;
 			this.syncLayerPanelPresentation();
 		});
@@ -2368,9 +2369,7 @@ class ArkidianView extends ItemView {
 			this.layerPanelEl.style.width = `${this.layerPanelWidth}px`;
 			this.layerPanelEl.style.flexBasis = `${this.layerPanelWidth}px`;
 		}
-		const toggle = this.layerPanelHeaderEl.querySelector<HTMLElement>(
-			".arkidian-layer-panel-actions .arkidian-layer-panel-toggle:last-child"
-		);
+		const toggle = this.layerPanelToggleEl;
 		if (toggle) {
 			setIcon(
 				toggle,

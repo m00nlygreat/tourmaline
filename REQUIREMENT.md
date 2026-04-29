@@ -64,7 +64,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - The top toolbar shows breadcrumbs on the left and action buttons grouped on the right.
 - Breadcrumbs include the source-side file and scope chain when the current canvas was reached by entering an embed, without showing the raw embed syntax itself as a separate step.
 - A Figma-style layer panel sits on the left side of the view.
-- The layer panel can be collapsed and expanded from its header without leaving the canvas view.
+- Collapsing the layer panel removes the panel body from the layout and leaves only a floating expand control over the canvas.
 - The layer panel width can be adjusted within a constrained range by dragging its right edge.
 - The layer panel header includes a control to expand or collapse all currently visible heading groups.
 - The layer panel shows the current canvas scope's elements and their descendants as a nested tree.
