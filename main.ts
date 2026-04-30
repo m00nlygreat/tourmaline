@@ -1,5 +1,6 @@
 import {
 	App,
+	addIcon,
 	getFrontMatterInfo,
 	getLinkpath,
 	ItemView,
@@ -36,6 +37,12 @@ const MIN_GRID_SCREEN_SPACING = 14;
 const DEFAULT_LAYER_PANEL_WIDTH = 280;
 const MIN_LAYER_PANEL_WIDTH = 220;
 const MAX_LAYER_PANEL_WIDTH = 420;
+const TOURMALINE_ICON = "tourmaline-gem";
+const TOURMALINE_ICON_SVG = `
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+	<path d="M7 4h10l4 6-9 10-9-10 4-6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+	<path d="M3 10h18M7 4l5 16 5-16M8 10l4-6 4 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+</svg>`;
 
 type CanvasItemState = {
 	id: string;
@@ -195,18 +202,20 @@ declare global {
 
 export default class ArkidianPlugin extends Plugin {
 	async onload() {
+		addIcon(TOURMALINE_ICON, TOURMALINE_ICON_SVG);
+
 		this.registerView(
 			VIEW_TYPE_ARKIDIAN,
 			(leaf) => new ArkidianView(leaf, this)
 		);
 
-		this.addRibbonIcon("layout-dashboard", "Open Arkidian Canvas", async () => {
+		this.addRibbonIcon(TOURMALINE_ICON, "Open Tourmaline", async () => {
 			await this.activateView();
 		});
 
 		this.addCommand({
 			id: "open-arkidian-canvas",
-			name: "Open current file in Arkidian Canvas",
+			name: "Open current file in Tourmaline",
 			checkCallback: (checking) => {
 				const file = this.app.workspace.getActiveFile();
 				if (!file || file.extension !== "md") {
@@ -297,11 +306,11 @@ class ArkidianView extends ItemView {
 	}
 
 	getDisplayText() {
-		return "Arkidian Canvas";
+		return "Tourmaline";
 	}
 
 	getIcon() {
-		return "layout-dashboard";
+		return TOURMALINE_ICON;
 	}
 
 	async onOpen() {

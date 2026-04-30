@@ -1,6 +1,6 @@
 {
   "id": "arkidian-canvas",
-  "name": "Arkidian Canvas",
+  "name": "Tourmaline",
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
   "description": "Open the current markdown file as a canvas of editable preview cards.",

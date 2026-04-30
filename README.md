@@ -1,6 +1,6 @@
-# Arkidian Canvas
+# Tourmaline
 
-Arkidian Canvas는 현재 Markdown 문서를 확대/이동 가능한 캔버스로 열어 주는 Obsidian 플러그인입니다.
+Tourmaline은 현재 Markdown 문서를 확대/이동 가능한 캔버스로 열어 주는 Obsidian 플러그인입니다.
 
 문서의 제목 구조를 기준으로 내용을 카드처럼 배치하고, 각 섹션과 임베드의 관계를 캔버스와 레이어 패널에서 함께 탐색할 수 있게 합니다.
 
