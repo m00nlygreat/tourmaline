@@ -210,14 +210,14 @@ export default class ArkidianPlugin extends Plugin {
 		);
 
 		this.addRibbonIcon(TOURMALINE_ICON, "Open Tourmaline", async () => {
-			await this.activateView();
+			await this.activateView(this.getCurrentViewedMarkdownFile());
 		});
 
 		this.addCommand({
 			id: "open-arkidian-canvas",
 			name: "Open current file in Tourmaline",
 			checkCallback: (checking) => {
-				const file = this.app.workspace.getActiveFile();
+				const file = this.getCurrentViewedMarkdownFile();
 				if (!file || file.extension !== "md") {
 					return false;
 				}
@@ -238,6 +238,7 @@ export default class ArkidianPlugin extends Plugin {
 	}
 
 	async activateView(file?: TFile) {
+		const targetFile = file ?? this.getCurrentViewedMarkdownFile();
 		const leaf = this.app.workspace.getLeaf("tab");
 
 		if (!leaf) {
@@ -249,10 +250,28 @@ export default class ArkidianPlugin extends Plugin {
 			type: VIEW_TYPE_ARKIDIAN,
 			active: true,
 			state: {
-				file: (file ?? this.app.workspace.getActiveFile())?.path
+				file: targetFile?.path
 			}
 		});
 		this.app.workspace.revealLeaf(leaf);
+	}
+
+	private getCurrentViewedMarkdownFile() {
+		const activeView = this.app.workspace.activeLeaf?.view;
+		if (activeView instanceof ArkidianView) {
+			return activeView.getCurrentFile();
+		}
+		if (activeView instanceof MarkdownView && activeView.file?.extension === "md") {
+			return activeView.file;
+		}
+
+		const activeMarkdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeMarkdownView?.file?.extension === "md") {
+			return activeMarkdownView.file;
+		}
+
+		const activeFile = this.app.workspace.getActiveFile();
+		return activeFile?.extension === "md" ? activeFile : null;
 	}
 }
 
@@ -311,6 +330,10 @@ class ArkidianView extends ItemView {
 
 	getIcon() {
 		return TOURMALINE_ICON;
+	}
+
+	getCurrentFile() {
+		return this.currentFile;
 	}
 
 	async onOpen() {

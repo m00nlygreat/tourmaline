@@ -40,6 +40,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Wheel zoom must keep the content under the cursor visually pinned while surrounding content expands or contracts around that point.
 - Zoom-out must stop before the stage becomes smaller than the visible canvas, so the canvas remains scrollable instead of collapsing into a no-scroll fit state.
 - Opening the canvas defaults to a main workspace tab instead of a side panel leaf.
+- Opening Tourmaline from the ribbon or command uses the Markdown file currently visible in the active editor or Tourmaline view.
 - On first open, the viewport and zoom default to a fitted view that shows all current content within one screen while still presenting the canvas around the world origin.
 - Refresh/rebuild and file load must also refit the initial viewport so current content is visible without manual panning.
 - The canvas uses a much larger world area, approximately 10x the earlier default workspace.
