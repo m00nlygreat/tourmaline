@@ -2268,6 +2268,7 @@ class ArkidianView extends ItemView {
 			if (isInteractiveTarget(event.target)) {
 				return;
 			}
+			event.preventDefault();
 			this.selectItem(itemId, target);
 			startX = event.clientX;
 			startY = event.clientY;
@@ -2275,7 +2276,7 @@ class ArkidianView extends ItemView {
 			originY = state.y;
 			window.addEventListener("pointermove", onPointerMove);
 			window.addEventListener("pointerup", onPointerUp);
-		});
+		}, true);
 		target.addEventListener("dragstart", (event) => {
 			event.preventDefault();
 		});

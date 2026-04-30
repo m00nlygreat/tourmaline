@@ -11,7 +11,7 @@
 ## Markdown Rendering
 
 - Route both section cards and orphan blocks through `MarkdownRenderer`, and keep `markdown-rendered` plus `markdown-preview-view` on the container. Without both, preview output diverges from normal Obsidian rendering.
-- Disable native image dragging inside previews and prevent card `dragstart`. Browser drag behavior otherwise steals pointer intent from canvas repositioning.
+- Disable native image dragging inside previews, prevent card `dragstart`, and start card dragging from the capture phase. Embed selection stops bubbling, so bubble-only card drag handling lets native text selection steal pointer intent.
 - Treat YAML frontmatter as note properties, not canvas body content. Parse markdown after removing frontmatter so it does not become bogus orphan blocks.
 - Use `app.fileManager.processFrontMatter()` for frontmatter edits. Direct text replacement is more likely to fight Obsidian formatting and cache updates.
 
