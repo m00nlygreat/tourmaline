@@ -14,6 +14,7 @@
 - Disable native image dragging inside previews, prevent card `dragstart`, and start card dragging from the capture phase. Embed selection stops bubbling, so bubble-only card drag handling lets native text selection steal pointer intent.
 - Treat YAML frontmatter as note properties, not canvas body content. Parse markdown after removing frontmatter so it does not become bogus orphan blocks.
 - Use `app.fileManager.processFrontMatter()` for frontmatter edits. Direct text replacement is more likely to fight Obsidian formatting and cache updates.
+- Vitest cannot resolve the Obsidian package directly; keep tests behind a local Obsidian API mock or isolate pure parsing utilities from plugin imports.
 
 ## Scope And Navigation
 
