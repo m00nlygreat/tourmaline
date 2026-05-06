@@ -455,15 +455,11 @@ export class ArkidianView extends ItemView {
 			return;
 		}
 
-		for (const [index, context] of renderableContexts.entries()) {
+		const defaultItemStates = this.getDefaultItemStates(renderableContexts);
+
+		for (const context of renderableContexts) {
 			const { renderable } = context;
-			const fallback = this.getDefaultItemState(
-				renderable.id,
-				index,
-				renderable.kind === "orphan" || renderable.kind === "frontmatter",
-				renderable.kind === "frontmatter"
-			);
-			const state = scopeMeta.items[renderable.id] ?? fallback;
+			const state = scopeMeta.items[renderable.id] ?? defaultItemStates[renderable.id];
 			itemStates.push(state);
 			if (renderable.kind === "frontmatter") {
 				await this.renderFrontmatterCard(nextStage, renderable.item, state);
@@ -498,15 +494,10 @@ export class ArkidianView extends ItemView {
 			zoom: scopeMeta.zoom,
 			items: {
 				...Object.fromEntries(
-					renderableContexts.map(({ renderable }, index) => {
-						const fallback = this.getDefaultItemState(
-							renderable.id,
-							index,
-							renderable.kind === "orphan" || renderable.kind === "frontmatter",
-							renderable.kind === "frontmatter"
-						);
-						return [renderable.id, scopeMeta.items[renderable.id] ?? fallback];
-					})
+					renderableContexts.map(({ renderable }) => [
+						renderable.id,
+						scopeMeta.items[renderable.id] ?? defaultItemStates[renderable.id]
+					])
 				)
 			}
 		};
@@ -2446,38 +2437,55 @@ export class ArkidianView extends ItemView {
 		await this.writeMeta(meta);
 	}
 
-	private getDefaultItemState(
-		id: string,
-		index: number,
-		isOrphan: boolean,
-		isFrontmatter = false
-	): CanvasItemState {
-		const cardSpacingX = 460;
-		const cardSpacingY = 380;
-		const orphanSpacingY = 190;
-		const column = index % 3;
-		const row = Math.floor(index / 3);
-		if (isFrontmatter) {
-			return {
-				id,
-				x: -cardSpacingX - 80,
-				y: -cardSpacingY,
-				width: 520,
+	private getDefaultItemStates(
+		contexts: RenderableItemContext[]
+	): Record<string, CanvasItemState> {
+		const supportX = -620;
+		const supportY = -240;
+		const supportSpacingY = 190;
+		const sectionX = 0;
+		const sectionY = -240;
+		const sectionSpacingX = 460;
+		const states: Record<string, CanvasItemState> = {};
+		const supportItems = contexts
+			.map((context) => context.renderable)
+			.filter((renderable) => renderable.kind !== "section")
+			.sort((a, b) => this.getSupportLayoutPriority(a) - this.getSupportLayoutPriority(b));
+		const sectionItems = contexts
+			.map((context) => context.renderable)
+			.filter((renderable) => renderable.kind === "section");
+
+		for (const [index, renderable] of supportItems.entries()) {
+			states[renderable.id] = {
+				id: renderable.id,
+				x: supportX,
+				y: supportY + index * supportSpacingY,
+				width: renderable.kind === "frontmatter" ? 520 : DEFAULT_CARD_WIDTH,
+				height: renderable.kind === "frontmatter" ? DEFAULT_CARD_HEIGHT : 140
+			};
+		}
+
+		for (const [index, renderable] of sectionItems.entries()) {
+			states[renderable.id] = {
+				id: renderable.id,
+				x: sectionX + index * sectionSpacingX,
+				y: sectionY,
+				width: DEFAULT_CARD_WIDTH,
 				height: DEFAULT_CARD_HEIGHT
 			};
 		}
 
-		return {
-			id,
-			x: isOrphan
-				? -DEFAULT_CARD_WIDTH - 220
-				: (column - 1) * cardSpacingX,
-			y: isOrphan
-				? -DEFAULT_CARD_HEIGHT / 2 + index * orphanSpacingY
-				: (row - 1) * cardSpacingY,
-			width: DEFAULT_CARD_WIDTH,
-			height: isOrphan ? 140 : DEFAULT_CARD_HEIGHT
-		};
+		return states;
+	}
+
+	private getSupportLayoutPriority(renderable: RenderableScopeItem) {
+		if (renderable.kind === "orphan" && renderable.id === "orphan:scope:root:file-title") {
+			return -2;
+		}
+		if (renderable.kind === "frontmatter") {
+			return -1;
+		}
+		return renderable.startLine;
 	}
 }
 
