@@ -94,6 +94,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Canvas-specific metadata is stored in a sibling file named `<filename>.meta.json`.
 - The metadata file stores only visualization and layout state.
 - Layout state is stored per canvas scope, not as one flat document-wide coordinate map.
+- The command palette includes a command to delete all Tourmaline `.meta.json` metadata files in the vault.
 
 ## Identity Strategy
 

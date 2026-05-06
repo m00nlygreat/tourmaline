@@ -5,7 +5,7 @@ import {
 	Plugin,
 	TFile
 } from "obsidian";
-import { TOURMALINE_ICON, TOURMALINE_ICON_SVG, VIEW_TYPE_ARKIDIAN } from "./src/constants";
+import { META_SUFFIX, TOURMALINE_ICON, TOURMALINE_ICON_SVG, VIEW_TYPE_ARKIDIAN } from "./src/constants";
 import { ArkidianView } from "./src/view";
 
 export default class ArkidianPlugin extends Plugin {
@@ -38,6 +38,14 @@ export default class ArkidianPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: "delete-all-arkidian-metadata",
+			name: "Delete all Tourmaline metadata files",
+			callback: async () => {
+				await this.deleteAllMetadataFiles();
+			}
+		});
+
 		this.registerExtensions(["meta.json"], VIEW_TYPE_ARKIDIAN);
 	}
 
@@ -62,6 +70,36 @@ export default class ArkidianPlugin extends Plugin {
 			}
 		});
 		this.app.workspace.revealLeaf(leaf);
+	}
+
+	private async deleteAllMetadataFiles() {
+		const metadataFiles = this.app.vault
+			.getFiles()
+			.filter((file) => file.path.endsWith(META_SUFFIX));
+
+		if (metadataFiles.length === 0) {
+			new Notice("No Tourmaline metadata files found.");
+			return;
+		}
+
+		let deletedCount = 0;
+		let failedCount = 0;
+
+		for (const file of metadataFiles) {
+			try {
+				await this.app.vault.delete(file, true);
+				deletedCount += 1;
+			} catch {
+				failedCount += 1;
+			}
+		}
+
+		if (failedCount > 0) {
+			new Notice(`Deleted ${deletedCount} Tourmaline metadata files. Failed to delete ${failedCount}.`);
+			return;
+		}
+
+		new Notice(`Deleted ${deletedCount} Tourmaline metadata files.`);
 	}
 
 	private getCurrentViewedMarkdownFile() {
