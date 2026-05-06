@@ -118,7 +118,6 @@ export class ArkidianView extends ItemView {
 	private viewportOffsetX = 0;
 	private viewportOffsetY = 0;
 	private saveTimers = new Map<string, number>();
-	private zoomSaveTimer: number | null = null;
 	private suppressFileRefreshUntil = 0;
 	private isSpacePressed = false;
 	private fittedFilePath: string | null = null;
@@ -486,24 +485,6 @@ export class ArkidianView extends ItemView {
 			}
 		}
 
-		if (!this.isRenderCurrent(renderToken)) {
-			return;
-		}
-
-		meta.scopes[this.currentScopeId] = {
-			zoom: scopeMeta.zoom,
-			items: {
-				...Object.fromEntries(
-					renderableContexts.map(({ renderable }) => [
-						renderable.id,
-						scopeMeta.items[renderable.id] ?? defaultItemStates[renderable.id]
-					])
-				)
-			}
-		};
-		await this.writeMeta({
-			...meta
-		});
 		if (!this.isRenderCurrent(renderToken)) {
 			return;
 		}
@@ -1086,6 +1067,10 @@ export class ArkidianView extends ItemView {
 	}
 
 	private handleCanvasWheel(event: WheelEvent) {
+		if (!(event.ctrlKey || event.metaKey)) {
+			return;
+		}
+
 		event.preventDefault();
 
 		const zoomDelta = event.deltaY < 0 ? 1.1 : 1 / 1.1;
@@ -1102,7 +1087,6 @@ export class ArkidianView extends ItemView {
 		this.zoom = nextZoom;
 		this.syncStageZoom();
 		this.anchorViewportOnStagePoint(stagePoint.x, stagePoint.y, pointerX, pointerY);
-		this.queueZoomSave();
 	}
 
 	private syncStageZoom() {
@@ -1328,17 +1312,6 @@ export class ArkidianView extends ItemView {
 			devicePixelRatio: window.devicePixelRatio || 1
 		});
 	}
-	private queueZoomSave() {
-		if (this.zoomSaveTimer !== null) {
-			window.clearTimeout(this.zoomSaveTimer);
-		}
-
-		this.zoomSaveTimer = window.setTimeout(() => {
-			void this.persistZoomState();
-			this.zoomSaveTimer = null;
-		}, 150);
-	}
-
 	private async renderFrontmatterCard(
 		stageEl: HTMLElement,
 		frontmatter: FrontmatterItem,
@@ -1622,7 +1595,6 @@ export class ArkidianView extends ItemView {
 			if (nextZoom !== this.zoom) {
 				this.zoom = nextZoom;
 				this.syncStageZoom();
-				this.queueZoomSave();
 			}
 			this.positionViewportAroundStagePoint(
 				stageX,
@@ -2339,19 +2311,30 @@ export class ArkidianView extends ItemView {
 		}
 
 		const meta = await this.readMeta(this.currentFile);
-		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
-		delete scopeMeta.items[renderable.id];
-		meta.scopes[this.currentScopeId] = scopeMeta;
+		const scopeMeta = meta.scopes[this.currentScopeId];
+		let changed = false;
+
+		if (
+			scopeMeta &&
+			Object.prototype.hasOwnProperty.call(scopeMeta.items, renderable.id)
+		) {
+			delete scopeMeta.items[renderable.id];
+			changed = true;
+		}
 
 		const childScopeId =
 			renderable.kind === "section"
 				? renderable.item.scopeId
 				: renderable.item.childScopeId;
 		if (childScopeId) {
+			const scopeCount = Object.keys(meta.scopes).length;
 			removeScopeMetaTree(meta, childScopeId);
+			changed = changed || Object.keys(meta.scopes).length !== scopeCount;
 		}
 
-		await this.writeMeta(meta);
+		if (changed) {
+			await this.writeMeta(meta);
+		}
 	}
 
 	private async openCanvasLocation(filePath: string, scopeId: string) {
@@ -2425,18 +2408,6 @@ export class ArkidianView extends ItemView {
 		await this.writeMeta(meta);
 	}
 
-	private async persistZoomState() {
-		if (!this.currentFile) {
-			return;
-		}
-
-		const meta = await this.readMeta(this.currentFile);
-		const scopeMeta = this.getScopeMeta(meta, this.currentScopeId);
-		scopeMeta.zoom = this.zoom;
-		meta.scopes[this.currentScopeId] = scopeMeta;
-		await this.writeMeta(meta);
-	}
-
 	private getDefaultItemStates(
 		contexts: RenderableItemContext[]
 	): Record<string, CanvasItemState> {
@@ -2445,7 +2416,7 @@ export class ArkidianView extends ItemView {
 		const supportSpacingY = 190;
 		const sectionX = 0;
 		const sectionY = -240;
-		const sectionSpacingX = 460;
+		const sectionSpacingX = 593;
 		const states: Record<string, CanvasItemState> = {};
 		const supportItems = contexts
 			.map((context) => context.renderable)

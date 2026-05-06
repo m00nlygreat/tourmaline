@@ -1,6 +1,6 @@
 export const VIEW_TYPE_ARKIDIAN = "arkidian-canvas-view";
 export const META_SUFFIX = ".meta.json";
-export const DEFAULT_CARD_WIDTH = 380;
+export const DEFAULT_CARD_WIDTH = 513;
 export const DEFAULT_CARD_HEIGHT = 320;
 export const STAGE_WIDTH = 14000;
 export const STAGE_HEIGHT = 9000;

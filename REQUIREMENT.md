@@ -36,14 +36,16 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 ## Canvas Behavior
 
 - Canvas supports zoom and pan.
-- Mouse wheel zooms the canvas in and out using the cursor position as the anchor point.
+- Ctrl/Cmd + mouse wheel zooms the canvas in and out using the cursor position as the anchor point.
+- Plain mouse wheel preserves the default vertical scroll behavior.
 - Wheel zoom must keep the content under the cursor visually pinned while surrounding content expands or contracts around that point.
 - Zoom-out must stop before the stage becomes smaller than the visible canvas, so the canvas remains scrollable instead of collapsing into a no-scroll fit state.
 - Opening the canvas defaults to a main workspace tab instead of a side panel leaf.
 - Opening Tourmaline from the ribbon or command uses the Markdown file currently visible in the active editor or Tourmaline view.
+- The default hotkey for opening the current Markdown file in Tourmaline is Ctrl+Shift+E on Windows/Linux and Cmd+Shift+E on macOS.
 - On first open, the viewport and zoom default to a fitted view that shows all current content within one screen while still presenting the canvas around the world origin.
 - Refresh/rebuild and file load must also refit the initial viewport so current content is visible without manual panning.
-- When no saved layout exists, the initial layout uses one left support column for the file title, properties, and orphan blocks, with section cards placed as separate horizontal columns to the right.
+- When no saved layout exists, the initial layout uses one left support column for the file title, properties, and orphan blocks, with wide section cards placed as separate horizontal columns to the right.
 - The canvas uses a much larger world area, approximately 10x the earlier default workspace.
 - Double-clicking empty canvas floor creates a new heading at the current canvas level, followed by two blank lines, and opens a source editor ready to rename it.
 - The center of the world is `(0, 0)`, and item positions extend into negative and positive `x/y` coordinates from there.
@@ -94,6 +96,8 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - The Markdown file is the source of truth for content.
 - Canvas-specific metadata is stored in a sibling file named `<filename>.meta.json`.
 - The metadata file stores only visualization and layout state.
+- When no metadata file exists, opening the canvas uses the default layout without creating metadata.
+- Metadata is written only after a user changes a canvas item's position or card width.
 - Layout state is stored per canvas scope, not as one flat document-wide coordinate map.
 - The command palette includes a command to delete all Tourmaline `.meta.json` metadata files in the vault.
 

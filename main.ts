@@ -24,6 +24,12 @@ export default class ArkidianPlugin extends Plugin {
 		this.addCommand({
 			id: "open-arkidian-canvas",
 			name: "Open current file in Tourmaline",
+			hotkeys: [
+				{
+					modifiers: ["Mod", "Shift"],
+					key: "E"
+				}
+			],
 			checkCallback: (checking) => {
 				const file = this.getCurrentViewedMarkdownFile();
 				if (!file || file.extension !== "md") {
