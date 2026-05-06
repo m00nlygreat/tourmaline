@@ -9,6 +9,7 @@ import {
 	WorkspaceLeaf
 } from "obsidian";
 import { CardRenderer } from "./card-renderer";
+import { createPredictedItemStates } from "./auto-layout";
 import {
 	applyItemFrame,
 	clamp,
@@ -49,8 +50,6 @@ import {
 } from "./domain";
 import type { MetadataCache } from "obsidian";
 import {
-	DEFAULT_CARD_HEIGHT,
-	DEFAULT_CARD_WIDTH,
 	DEFAULT_LAYER_PANEL_WIDTH,
 	MAX_CARD_WIDTH,
 	MAX_LAYER_PANEL_WIDTH,
@@ -455,15 +454,14 @@ export class ArkidianView extends ItemView {
 			return;
 		}
 
-		for (const [index, context] of renderableContexts.entries()) {
+		const predictedItems = createPredictedItemStates({
+			contexts: renderableContexts,
+			existingItems: scopeMeta.items
+		});
+
+		for (const context of renderableContexts) {
 			const { renderable } = context;
-			const fallback = this.getDefaultItemState(
-				renderable.id,
-				index,
-				renderable.kind === "orphan" || renderable.kind === "frontmatter",
-				renderable.kind === "frontmatter"
-			);
-			const state = scopeMeta.items[renderable.id] ?? fallback;
+			const state = predictedItems[renderable.id];
 			itemStates.push(state);
 			if (renderable.kind === "frontmatter") {
 				await this.renderFrontmatterCard(nextStage, renderable.item, state);
@@ -497,17 +495,7 @@ export class ArkidianView extends ItemView {
 		meta.scopes[this.currentScopeId] = {
 			zoom: scopeMeta.zoom,
 			items: {
-				...Object.fromEntries(
-					renderableContexts.map(({ renderable }, index) => {
-						const fallback = this.getDefaultItemState(
-							renderable.id,
-							index,
-							renderable.kind === "orphan" || renderable.kind === "frontmatter",
-							renderable.kind === "frontmatter"
-						);
-						return [renderable.id, scopeMeta.items[renderable.id] ?? fallback];
-					})
-				)
+				...predictedItems
 			}
 		};
 		await this.writeMeta({
@@ -2446,38 +2434,5 @@ export class ArkidianView extends ItemView {
 		await this.writeMeta(meta);
 	}
 
-	private getDefaultItemState(
-		id: string,
-		index: number,
-		isOrphan: boolean,
-		isFrontmatter = false
-	): CanvasItemState {
-		const cardSpacingX = 460;
-		const cardSpacingY = 380;
-		const orphanSpacingY = 190;
-		const column = index % 3;
-		const row = Math.floor(index / 3);
-		if (isFrontmatter) {
-			return {
-				id,
-				x: -cardSpacingX - 80,
-				y: -cardSpacingY,
-				width: 520,
-				height: DEFAULT_CARD_HEIGHT
-			};
-		}
-
-		return {
-			id,
-			x: isOrphan
-				? -DEFAULT_CARD_WIDTH - 220
-				: (column - 1) * cardSpacingX,
-			y: isOrphan
-				? -DEFAULT_CARD_HEIGHT / 2 + index * orphanSpacingY
-				: (row - 1) * cardSpacingY,
-			width: DEFAULT_CARD_WIDTH,
-			height: isOrphan ? 140 : DEFAULT_CARD_HEIGHT
-		};
-	}
 }
 

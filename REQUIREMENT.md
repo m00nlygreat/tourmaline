@@ -43,6 +43,7 @@ Obsidian plugin that opens a Markdown document as a zoomable canvas and arranges
 - Opening Tourmaline from the ribbon or command uses the Markdown file currently visible in the active editor or Tourmaline view.
 - On first open, the viewport and zoom default to a fitted view that shows all current content within one screen while still presenting the canvas around the world origin.
 - Refresh/rebuild and file load must also refit the initial viewport so current content is visible without manual panning.
+- When no saved metadata exists for a canvas scope, the initial card layout should use predicted text heights to create a balanced automatic arrangement.
 - The canvas uses a much larger world area, approximately 10x the earlier default workspace.
 - Double-clicking empty canvas floor creates a new heading at the current canvas level, followed by two blank lines, and opens a source editor ready to rename it.
 - The center of the world is `(0, 0)`, and item positions extend into negative and positive `x/y` coordinates from there.
